@@ -1,6 +1,7 @@
 import { connectDevframe } from 'devframe/client';
 import { attachAnalog } from './analog-runtime.ts';
 import { attachForms } from './forms-collector.ts';
+import { attachPipes } from './pipes-collector.ts';
 import { attachHttp } from './http-overlay.ts';
 import {
   findRouters,
@@ -114,6 +115,8 @@ export async function initOverlay(options: { baseURL?: string | string[] } = {})
   const stopAnalog = attachAnalog(my, pageId, getNg);
   const forms = attachForms(my, pageId, getNg, { show: showHighlight, clear: clearHighlight });
   const pushForms = forms.push;
+  const pipes = attachPipes(my, pageId, getNg);
+  const pushPipes = pipes.push;
   const http = attachHttp(my, pageId);
   const pushHttp = () => void http.push().catch(() => {});
 
@@ -211,6 +214,7 @@ export async function initOverlay(options: { baseURL?: string | string[] } = {})
   pushInjectorTree();
   pushNgrxState();
   pushForms();
+  pushPipes();
   pushRouter();
   pushHttp();
 
@@ -220,6 +224,7 @@ export async function initOverlay(options: { baseURL?: string | string[] } = {})
     pushInjectorTree();
     pushNgrxState();
     pushForms();
+    pushPipes();
     pushRouter();
     pushHttp();
   }, 3000);
@@ -271,12 +276,17 @@ export async function initOverlay(options: { baseURL?: string | string[] } = {})
   });
 
   const leave = () => {
+    pipes.pause();
     void my.rpc.call('forget-forms-page', pageId).catch(() => {});
     void my.rpc.call('forget-router-page', pageId).catch(() => {});
+    void my.rpc.call('forget-pipes-page', pageId).catch(() => {});
     http.leave();
   };
   addEventListener('pagehide', leave);
-  const resendConfig = () => (sentGeneration = -1);
+  const resendConfig = () => {
+    sentGeneration = -1;
+    pipes.resume();
+  };
   addEventListener('pageshow', resendConfig);
 
   return () => {
@@ -284,6 +294,8 @@ export async function initOverlay(options: { baseURL?: string | string[] } = {})
     restoreSignalHook();
     removeEventListener('pagehide', leave);
     forms.stop();
+    pipes.stop();
+    void my.rpc.call('forget-pipes-page', pageId).catch(() => {});
     stopAnalog();
     removeEventListener('pageshow', resendConfig);
     for (const cleanup of routerCleanup) cleanup();

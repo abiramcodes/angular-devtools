@@ -7,19 +7,10 @@ import { SignalInspector } from './pages/signal-inspector';
 import { DiInspector } from './pages/di-inspector';
 import { StoreInspector } from './pages/store-inspector';
 import { FormsInspector } from './pages/forms-inspector';
+import { PipesInspector } from './pages/pipes-inspector';
+import type { Tab, Tabs } from './types/tab.types';
 import { AnalogInspector } from './pages/analog-inspector';
 import { NetworkInspector } from './pages/network-inspector';
-
-type Tab =
-  | 'dashboard'
-  | 'components'
-  | 'routes'
-  | 'signals'
-  | 'injectors'
-  | 'store'
-  | 'forms'
-  | 'network'
-  | 'analog';
 
 @Component({
   selector: 'app-root',
@@ -31,6 +22,7 @@ type Tab =
     DiInspector,
     StoreInspector,
     FormsInspector,
+    PipesInspector,
     AnalogInspector,
     NetworkInspector,
   ],
@@ -100,6 +92,9 @@ type Tab =
             [focus]="formFocus()"
             (focusHandled)="formFocus.set(null)"
           />
+        }
+        @case ('pipes') {
+          <app-pipes-inspector [rpc]="rpc()" />
         }
         @case ('analog') {
           <app-analog-inspector [rpc]="rpc()" />
@@ -187,16 +182,17 @@ type Tab =
 })
 export class App implements OnInit, OnDestroy {
   readonly analog = signal(false);
-  private readonly allTabs = [
-    { id: 'dashboard' as Tab, label: 'Dashboard' },
-    { id: 'analog' as Tab, label: 'Analog' },
-    { id: 'components' as Tab, label: 'Components' },
-    { id: 'routes' as Tab, label: 'Routes' },
-    { id: 'signals' as Tab, label: 'Signals' },
-    { id: 'injectors' as Tab, label: 'Injectors' },
-    { id: 'store' as Tab, label: 'Store' },
-    { id: 'forms' as Tab, label: 'Forms' },
-    { id: 'network' as Tab, label: 'SSR & HTTP' },
+  private readonly allTabs: Tabs[] = [
+    { id: 'dashboard', label: 'Dashboard' },
+    { id: 'analog', label: 'Analog' },
+    { id: 'components', label: 'Components' },
+    { id: 'routes', label: 'Routes' },
+    { id: 'signals', label: 'Signals' },
+    { id: 'injectors', label: 'Injectors' },
+    { id: 'store', label: 'Store' },
+    { id: 'forms', label: 'Forms' },
+    { id: 'pipes', label: 'Pipes' },
+    { id: 'network', label: 'SSR & HTTP' },
   ];
   readonly tabs = computed(() => this.allTabs.filter((t) => t.id !== 'analog' || this.analog()));
 

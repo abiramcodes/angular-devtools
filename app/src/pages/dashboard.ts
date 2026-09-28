@@ -1,5 +1,6 @@
 import { Component, input, signal, effect, output } from '@angular/core';
 import type { DevframeRpcClient } from 'devframe/client';
+import type { Tab } from '../types/tab.types';
 
 @Component({
   selector: 'app-dashboard',
@@ -46,6 +47,11 @@ import type { DevframeRpcClient } from 'devframe/client';
         <h2>NgRx Store</h2>
         <p class="big">{{ storeCount() }}</p>
         <p class="sub">store entries</p>
+      </div>
+      <div class="card clickable" (click)="navigate.emit('pipes')">
+        <h2>Pipes</h2>
+        <p class="big">{{ pipeCount() }}</p>
+        <p class="sub">template transformers</p>
       </div>
     </div>
   `,
@@ -102,7 +108,7 @@ import type { DevframeRpcClient } from 'devframe/client';
 })
 export class Dashboard {
   rpc = input<DevframeRpcClient | null>(null);
-  navigate = output<string>();
+  navigate = output<Tab>();
 
   meta = signal<any>(null);
   componentCount = signal(0);
@@ -110,6 +116,7 @@ export class Dashboard {
   signalCount = signal(0);
   providerCount = signal(0);
   storeCount = signal(0);
+  pipeCount = signal(0);
 
   constructor() {
     effect(() => {
@@ -140,6 +147,10 @@ export class Dashboard {
       my.rpc
         .call('get-ngrx-store')
         .then((s: any[]) => this.storeCount.set(s.length))
+        .catch(() => {});
+      my.rpc
+        .call('get-pipes')
+        .then((s: any[]) => this.pipeCount.set(s.length))
         .catch(() => {});
     });
   }

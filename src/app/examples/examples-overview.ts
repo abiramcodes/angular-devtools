@@ -142,6 +142,13 @@ export class ExamplesOverview {
       blurb: 'Signal Forms, reactive and template-driven forms with failing validators.',
     },
     {
+      path: 'pipes',
+      tab: 'Pipes',
+      title: 'Pure, impure and module',
+      blurb:
+        'A pure formatting pipe, an impure one that recomputes every tick, and a standalone: false one declared through an NgModule.',
+    },
+    {
       path: 'http',
       tab: 'SSR & HTTP',
       title: 'Data from the backend',

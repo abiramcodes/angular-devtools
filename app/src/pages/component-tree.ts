@@ -8,7 +8,6 @@ import {
   output,
   signal,
 } from '@angular/core';
-import { JsonPipe } from '@angular/common';
 import type { DevframeRpcClient } from 'devframe/client';
 
 interface ComponentInfo {
@@ -38,7 +37,6 @@ interface ProviderEntry {
 
 @Component({
   selector: 'app-component-tree',
-  imports: [JsonPipe],
   template: `
     <div class="toolbar">
       <input

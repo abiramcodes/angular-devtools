@@ -2,6 +2,10 @@ import type { RemoteAssets } from 'devframe';
 import { defineDevframe } from 'devframe';
 import { getRoutes } from './rpc/get-routes.ts';
 import { getComponents } from './rpc/get-components.ts';
+import { getPipes } from './rpc/get-pipes.ts';
+import { lintPipes, lintPipesText } from './rpc/pipe-lint.ts';
+import { explainPipeText } from './rpc/pipe-explain.ts';
+import { trackPageSessions } from './rpc/page-sessions.ts';
 import { getBuildMeta } from './rpc/build-meta.ts';
 import { getSignals } from './rpc/get-signals.ts';
 import { getProviders } from './rpc/get-providers.ts';
@@ -36,6 +40,14 @@ import {
   type WaitUntil,
 } from './rpc/forms-explain.ts';
 import { findFormSource, sourceText } from './rpc/forms-source.ts';
+import {
+  currentPipes,
+  expirePipePages,
+  isPipePageReport,
+  mergePipePageReport,
+  type PipePageReport,
+  type PipesState,
+} from './rpc/pipes-tools.ts';
 import {
   currentRouter,
   expireRouterPages,
@@ -98,6 +110,7 @@ const ngDevtools = defineDevframe({
 
     my.rpc.register(getRoutes);
     my.rpc.register(getComponents);
+    my.rpc.register(getPipes);
     my.rpc.register(getSignals);
     my.rpc.register(getProviders);
     my.rpc.register(getNgrxStore);
@@ -164,6 +177,70 @@ const ngDevtools = defineDevframe({
         if (!isPageReport(report)) return;
         applyForms(mergePageReport(formPages, report));
       },
+    });
+
+    const pipePages = new Map<string, PipePageReport & { reportedAt: number }>();
+    const pipesState = await my.rpc.sharedState('pipe-usage', {
+      initialValue: { pipes: [], async: [], reportedAt: 0, instrumented: [] } as PipesState,
+    });
+
+    const applyPipes = (next: PipesState) =>
+      pipesState.mutate((draft) => {
+        draft.pipes = next.pipes;
+        draft.async = next.async;
+        draft.reportedAt = next.reportedAt;
+        draft.instrumented = next.instrumented;
+      });
+
+    // A closed tab drops its connection at once, so its entries go with it
+    // instead of lingering until they expire.
+    const pipeSessions = trackPageSessions(ctx.rpc, (pageIds) => {
+      let removed = false;
+      for (const pageId of pageIds) removed = pipePages.delete(pageId) || removed;
+      if (removed) applyPipes(currentPipes(pipePages));
+    });
+
+    my.rpc.register({
+      name: 'push-pipes',
+      type: 'action',
+      jsonSerializable: true,
+      handler: (report: unknown) => {
+        if (!isPipePageReport(report)) return;
+        pipeSessions.bind(report.pageId);
+        applyPipes(mergePipePageReport(pipePages, report));
+      },
+    });
+
+    my.rpc.register({
+      name: 'forget-pipes-page',
+      type: 'action',
+      jsonSerializable: true,
+      handler: (pageId: string) => {
+        if (typeof pageId === 'string') pipeSessions.unbind(pageId);
+        if (typeof pageId === 'string' && pipePages.delete(pageId)) {
+          applyPipes(currentPipes(pipePages));
+        }
+      },
+    });
+
+    my.rpc.register({
+      name: 'request-instrument-pipes',
+      type: 'action',
+      jsonSerializable: true,
+      handler: (on: unknown) => {
+        void my.rpc.broadcast({
+          method: 'instrument-pipes',
+          args: [on !== false],
+          optional: true,
+        });
+      },
+    });
+
+    my.rpc.register({
+      name: 'pipe-lint',
+      type: 'query',
+      jsonSerializable: true,
+      handler: () => lintPipes(ctx.cwd),
     });
 
     const routerPages = new Map<string, RouterPage>();
@@ -406,6 +483,8 @@ const ngDevtools = defineDevframe({
       if (next) applyForms(next);
       const nextRouter = expireRouterPages(routerPages);
       if (nextRouter) applyRouter(nextRouter);
+      const nextPipes = expirePipePages(pipePages);
+      if (nextPipes) applyPipes(nextPipes);
     }, 5000);
     expiry.unref?.();
 
@@ -1199,6 +1278,33 @@ const ngDevtools = defineDevframe({
         const state = formsState.value() as FormsState;
         if (!state.forms.length && !state.setupErrors?.length) return { markdown: noForms };
         return { markdown: lintFormsText(state, args ?? {}) };
+      },
+    });
+
+    ctx.agent.registerTool({
+      id: 'ng-devtools:lint-pipes',
+      description:
+        'Deterministic checks on pipes found in source: an impure pipe used inside an @for block (runs every check, potentially once per row), `| json` left in a template (a debugging aid), and a pure pipe whose transform() reads a signal directly (its memoization only tracks its own arguments, not signals it reads).',
+      safety: 'read',
+      inputSchema: { type: 'object', properties: {} },
+      handler: async () => ({ markdown: lintPipesText(ctx.cwd) }),
+    });
+
+    ctx.agent.registerTool({
+      id: 'ng-devtools:explain-pipe',
+      description:
+        'Explain one pipe by name: where it is declared or used, whether it is pure, live instance/call counts and last input/output when instrumentation is on, an experimental stale-value warning, and any lint findings. Use this to answer "why is this pipe slow or stale?"',
+      safety: 'read',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          name: { type: 'string', description: 'The pipe name as used after `|` in a template.' },
+        },
+        required: ['name'],
+      },
+      handler: async (args: { name?: string }) => {
+        if (!args?.name) return { markdown: 'Pass a pipe `name`.' };
+        return { markdown: explainPipeText(args.name, ctx.cwd, pipesState.value() as PipesState) };
       },
     });
 

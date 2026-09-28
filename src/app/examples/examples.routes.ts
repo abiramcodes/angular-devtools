@@ -23,6 +23,11 @@ export const examplesRoutes: Routes = [
     data: { title: 'Components', inspector: 'components' },
   },
   {
+    path: 'pipes',
+    loadComponent: () => import('./pipes-example').then((m) => m.PipesExample),
+    data: { title: 'Pipes', inspector: 'pipes' },
+  },
+  {
     path: 'di',
     loadComponent: () => import('./di-example').then((m) => m.DiExample),
     data: { title: 'Injectors', inspector: 'injectors' },
