@@ -26,7 +26,7 @@ const MAX_DEPTH = 256;
 const MAX_PROPS = 60;
 const VALUE_LIMITS = { depth: 3, keys: 30, items: 30, text: 300 };
 
-const CHANGE_DETECTION: Record<number, string> = { 0: 'OnPush', 1: 'Default' };
+const CHANGE_DETECTION: Record<number, string> = { 0: 'OnPush', 1: 'Eager' };
 const ENCAPSULATION: Record<number, string> = {
   0: 'Emulated',
   2: 'None',

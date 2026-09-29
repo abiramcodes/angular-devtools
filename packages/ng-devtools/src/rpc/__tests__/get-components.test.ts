@@ -5,10 +5,15 @@ import { scan } from './scan.ts';
 import { describe, expect, it } from 'vitest';
 import { getComponents } from '../get-components.ts';
 
-async function componentsFor(source: string) {
+async function componentsFor(source: string, angularVersion?: string) {
   const dir = fixtureDir('ng-devtools-components-');
   mkdirSync(join(dir, 'src'));
   writeFileSync(join(dir, 'src', 'widgets.ts'), source);
+  if (angularVersion) {
+    const coreDir = join(dir, 'node_modules', '@angular', 'core');
+    mkdirSync(coreDir, { recursive: true });
+    writeFileSync(join(coreDir, 'package.json'), JSON.stringify({ version: angularVersion }));
+  }
   return scan(getComponents, dir);
 }
 
@@ -123,5 +128,47 @@ describe('get-components', () => {
       expect.objectContaining({ selector: '', className: '_TripPage', kind: 'component', line: 5 }),
       expect.objectContaining({ selector: '', className: 'Base', kind: 'directive', line: 8 }),
     ]);
+  });
+
+  describe('change detection', () => {
+    const strategyOf = async (decoratorBody: string, version = '22.0.0') =>
+      (
+        await componentsFor(
+          `@Component({ selector: 'app-x', ${decoratorBody} })\nexport class X {}`,
+          version,
+        )
+      )[0].changeDetection;
+
+    it('reads qualified names and numeric values', async () => {
+      expect(await strategyOf('changeDetection: ChangeDetectionStrategy.Eager')).toBe('Eager');
+      expect(await strategyOf('changeDetection: core.ChangeDetectionStrategy.OnPush')).toBe(
+        'OnPush',
+      );
+      expect(await strategyOf('changeDetection: ChangeDetectionStrategy.Default')).toBe('Eager');
+      expect(await strategyOf('changeDetection: 0')).toBe('OnPush');
+      expect(await strategyOf('changeDetection: 1')).toBe('Eager');
+    });
+
+    it('ignores a changeDetection key nested in another property', async () => {
+      const nested = 'providers: [{ provide: X, useValue: { changeDetection: 1 } }]';
+      expect(await strategyOf(nested)).toBe('OnPush');
+      expect(await strategyOf(`${nested}, changeDetection: ChangeDetectionStrategy.OnPush`)).toBe(
+        'OnPush',
+      );
+      expect(await strategyOf(`${nested}, changeDetection: ChangeDetectionStrategy.Eager`)).toBe(
+        'Eager',
+      );
+    });
+
+    it('reports unknown for expressions it cannot evaluate', async () => {
+      expect(
+        await strategyOf(
+          'changeDetection: cond ? ChangeDetectionStrategy.OnPush : ChangeDetectionStrategy.Eager',
+        ),
+      ).toBe('unknown');
+      expect(await strategyOf('changeDetection: pick(ChangeDetectionStrategy.OnPush)')).toBe(
+        'unknown',
+      );
+    });
   });
 });

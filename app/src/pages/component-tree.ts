@@ -21,8 +21,8 @@ interface SourceComponent {
   inputs: string[];
   outputs: string[];
   isStandalone: boolean;
+  changeDetection?: 'OnPush' | 'Eager' | 'unknown';
 }
-
 interface LiveNode {
   id: string;
   name: string;
@@ -474,6 +474,10 @@ function bare(name: string): string {
                     <dd class="mono">{{ comp.file }}:{{ comp.line }}</dd>
                     <dt>Standalone</dt>
                     <dd>{{ comp.isStandalone ? 'Yes' : 'No' }}</dd>
+                    @if (comp.kind === 'component') {
+                      <dt>Change detection</dt>
+                      <dd>{{ comp.changeDetection ?? 'Unknown' }}</dd>
+                    }
                     <dt>Inputs</dt>
                     <dd class="mono">{{ comp.inputs.join(', ') || 'None' }}</dd>
                     <dt>Outputs</dt>

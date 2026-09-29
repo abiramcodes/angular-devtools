@@ -223,6 +223,21 @@ describe('collectComponentTree', () => {
       ],
     });
   });
+
+  it('labels change detection value 1 as Eager', () => {
+    document.body.innerHTML = `<app-root ng-version="22.0.0"><app-card></app-card></app-root>`;
+    const [root] = document.getElementsByTagName('app-root');
+    const card = document.querySelector('app-card')!;
+    const { ng } = fakeNg(
+      new Map<Element, object>([
+        [root, new _App()],
+        [card, new Card()],
+      ]),
+      { getDirectiveMetadata: () => ({ changeDetection: 1 }) },
+    );
+    const tree = collectComponentTree(ng, { selectedId: elementId(card) });
+    expect(tree.detail?.changeDetection).toBe('Eager');
+  });
 });
 
 describe('componentDetail', () => {
