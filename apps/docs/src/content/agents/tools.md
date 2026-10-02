@@ -147,6 +147,29 @@ The injectors a page reported. Element injectors list what each component inject
 
 Without `selector` or `token`, the answer is the whole tree, cut off at 20,000 characters, and says which change detection mode the page runs. When the page has more than 2000 element injectors, the answer says that it holds only the first 2000.
 
+## NgRx
+
+Two tools read the live `@ngrx/signals` and `@ngrx/store` state a page reported. Reads: page.
+
+### inspect-signal-store
+
+With `storeId`, the full state of one store: state, computed values, `withEntities()` collections (a summary of state and computed already there), methods with call counts, scope, where it is provided, and which components or injectors reference it. Without it, every store discovered so far, and the classic `@ngrx/store` state if present.
+
+| Argument  | Required | Value                                                                                                   |
+| --------- | -------- | ------------------------------------------------------------------------------------------------------- |
+| `page`    | no       | The tab to read. Defaults to every connected page.                                                      |
+| `storeId` | no       | A store id from a previous call, or the id shown on the [NgRx Store](../inspectors/ngrx-store.md) page. |
+
+### signal-store-history
+
+The change log for a page's stores, oldest first: `@ngrx/signals` state diffs (method calls and `patchState` writes, each with a per-key diff), classic `@ngrx/store` actions, and `@ngrx/signals/events` dispatched events. A method-call entry carries a duration in milliseconds. With `watchState` registered, it is the time from the start of the method to that patch; without it, the time the whole call took. A signal-store entry carries the event that caused it when the change happened while that event was being dispatched.
+
+| Argument  | Required | Value                                                                                                                                                            |
+| --------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `page`    | no       | The tab to read. Defaults to every connected page.                                                                                                               |
+| `storeId` | no       | Only that store's entries. Without it, every store, action and event.                                                                                            |
+| `since`   | no       | A `seq` from a previous call. Returns only entries after it. Requires `page` when more than one page is connected, since each page has its own sequence numbers. |
+
 ## Router
 
 All router tools read the page, except `explain-render-mode`, which also reads your `*.routes.server.ts` files.

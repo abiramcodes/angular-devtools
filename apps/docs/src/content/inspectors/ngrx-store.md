@@ -1,10 +1,10 @@
 ---
 title: NgRx Store
-description: Live NgRx signal stores and @ngrx/store state, with change logs, diffs, restore and dispatch.
+description: Live NgRx signal stores and @ngrx/store state, with entities, dispatched events, change logs, diffs, restore and dispatch.
 ---
 
 <ngmd-hero title="NgRx Store" logo="https://cdn.simpleicons.org/ngrx/BA2BD2" gradient>
-  Your NgRx state as it changes. Signal stores and the classic Store, with a log of every change, a diff per entry, restore and dispatch.
+  Your NgRx state as it changes. Signal stores and the classic Store, with entity collections, dispatched events, a log of every change, a diff per entry, restore and dispatch.
 </ngmd-hero>
 
 # NgRx Store
@@ -32,11 +32,12 @@ Select a store to see:
 - Its kind, scope and declaring file. The file appears when the store's state keys match a `signalStore` or `signalState` in your source.
 - **Store DevTools on** or **Store DevTools off**, for the classic Store.
 - **Referenced by**: the component fields that hold it.
-- **State**, **Computed** and **Methods**, with a call count per method. The tab tags `rxMethod` members.
+- **State**, **Computed** and **Methods**, with a call count per method. The tab tags `signalMethod` and `rxMethod` members. Once a method has been called, its chip also shows the average and last call duration, in milliseconds.
+- **Entities**, for a `signalStore` that calls `withEntities()`. One group per collection, with the entity count and the ids as chips. A group past 30 ids shows the first 30 and a count of the rest.
 
 ### Change log
 
-Signal stores get a **Change log**. The classic Store gets an **Action log**. Each entry shows its number, its type, the number of changes and the time. An action also shows a badge for where it came from:
+Signal stores get a **Change log**. The classic Store gets an **Action log**. Each entry shows its number, its type, the number of changes and the time. A method-call entry also shows how long the call itself took, and an entry whose change came from a dispatched event carries a tag with the event's type. An action also shows a badge for where it came from:
 
 | Badge      | Sent by                                                                       |
 | ---------- | ----------------------------------------------------------------------------- |
@@ -44,7 +45,11 @@ Signal stores get a **Change log**. The classic Store gets an **Action log**. Ea
 | `effect`   | An NgRx effect. Effects send their actions through `Store.next`.              |
 | `reactive` | `store.dispatch(() => action)`, which dispatches again when a signal changes. |
 
-Open an entry to see its arguments, or the action and its **Origin** for the classic Store, and a **State diff** with the value before and after each change. The diff lists up to 50 changes. An action entry also has **Dispatch again**.
+Open an entry to see its arguments, or the action and its **Origin** for the classic Store, and a **State diff** with the value before and after each change. The diff lists up to 50 changes. A method-call entry also shows its **Duration**, in milliseconds. An entry caused by a dispatched event shows the event under **Caused by event**. An action entry also has **Dispatch again**.
+
+### Events
+
+When a page dispatches at least one `@ngrx/signals/events` event, an **Events** section lists them: the event type, its payload and the time. This section covers every store on the page, not only the selected one. Open an event to see its full payload in the same detail panel as the change log.
 
 ### Dispatch an action
 
@@ -74,11 +79,22 @@ Filter by kind with the chips.
 
 ### How changes are recorded
 
-The overlay wraps the state signals of each signal store and the store's methods. A method call becomes one log entry with its arguments. Nested method calls fold into the outer one. The overlay batches writes made outside a method and logs them as `patchState`.
+The overlay wraps the state signals of each signal store and the store's methods. Every method call, nested or not, adds its duration to that method's average and last figures in **Methods**. The duration covers the synchronous call only, not any async work an `rxMethod` or an effect starts from it.
+
+How the log groups changes depends on whether `watchState` is registered (see [Restore NgRx signal state](../guides/ngrx-signals-restore.md)):
+
+| Setup                | Change log entries                                                                                                                                                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| With `watchState`    | One entry per `patchState` call, including several in the same tick, labeled with the method that is running. Each entry carries a duration: the time from the start of that method to that patch, so an earlier patch in a method shows a shorter duration than a later one. |
+| Without `watchState` | One entry per outermost method call that changes state, with the duration of the whole call. Writes outside a method are grouped per microtask into one `patchState` entry.                                                                                                   |
+
+A `patchState` outside a method and a `Restore #N` entry carry no duration. A method call that changes nothing still gets an entry, at most once per second.
 
 For the classic Store, the overlay listens to the dispatched actions. It also wraps `dispatch` and `next` on the Store to tag each action with its origin, and puts them back when the page disconnects.
 
 The overlay diffs a copy of the state that keeps the first 100 items of each array or object. When a change is past that limit, it compares the live state instead, so the entry still lists the change.
+
+For `@ngrx/signals/events`, the overlay finds the platform `Dispatcher` and every component-scoped one from `provideDispatcher()`, and records each event once, from the dispatcher that handles it. When a store's state changes while an event is being dispatched, that change's log entry is tagged with the event.
 
 ### Development builds
 
@@ -145,6 +161,8 @@ To try another payload, type the action in **Dispatch an action** instead.
 | `ng-devtools:get-ngrx-store`       | tool     | NgRx declarations from source, with the members of each `signalStore` and the type strings of each action.                        |
 | `ng-devtools:dispatch-ngrx-action` | tool     | Dispatches an action to the classic Store, or an action from the log again, and returns the new log entry.                        |
 | `ng-devtools:ngrx-store`           | resource | The live stores per page, with state, computeds, methods, references and the change log. Classic Store actions carry an `origin`. |
+| `ng-devtools:inspect-signal-store` | tool     | The live state of one store, or a summary of every store discovered so far.                                                       |
+| `ng-devtools:signal-store-history` | tool     | The live change log, oldest first: state diffs, classic `@ngrx/store` actions and `@ngrx/signals/events` events.                  |
 
 No tool can restore a state. See [Dispatch an action](../agents/tools.md#dispatch-an-action) and [Resources](../agents/resources.md).
 
@@ -152,7 +170,7 @@ No tool can restore a state. See [Dispatch an action](../agents/tools.md#dispatc
 
 ### `watchState` needs `registerNgrxSignals`
 
-Without it, restore writes the state signals directly. Components update, but `watchState` listeners do not run, and the log entry says so. Call `registerNgrxSignals({ patchState })` from `@santoshyadavdev/ng-devtools/overlay` once, and restore goes through `patchState`. This applies to `signalStore` only. A `signalState` restore always writes directly. See [Restore NgRx signal state](../guides/ngrx-signals-restore.md).
+Without it, restore writes the state signals directly. Components update, but `watchState` listeners do not run, and the log entry says so. Call `registerNgrxSignals({ patchState, watchState })` from `@santoshyadavdev/ng-devtools/overlay` once, and restore goes through `patchState`. This applies to `signalStore` only. A `signalState` restore always writes directly. See [Restore NgRx signal state](../guides/ngrx-signals-restore.md).
 
 ### Stores appear when they are created
 
@@ -178,6 +196,20 @@ Restore, **Back to latest**, **Dispatch** and **Dispatch again** need [`actions.
 
 The log keeps the last 200 entries. Set the count with [`limits.changeLog`](../getting-started/configuration.md#limits). Once older entries are dropped, the log says how many. The overlay logs a method call that changes nothing at most once per second.
 
+### The selected entity is a convention, not an API
+
+`@ngrx/signals` has no built-in concept of a selected entity. The tab looks for a `selectedId` state key (or `<collection>SelectedId` for a named collection) next to a `withEntities()` collection, and shows it as **Selected** when it holds a value. A `null` or missing key shows no **Selected** row.
+
+### Events come from every `Dispatcher`, and only synchronous changes are tagged
+
+The overlay listens to the platform `Dispatcher` from `@ngrx/signals/events`. It also listens to a `Dispatcher` that a component provides with `provideDispatcher()`, and stops when that component is destroyed. An event sent with `scope: 'parent'` or `scope: 'global'` is logged once, by the dispatcher that handles it.
+
+A change gets a **Caused by event** tag only when it happens during the `dispatch()` call, like a `withReducer()` case or an event handler that patches state right away. A change made later, after an HTTP call or a timer, shows as a plain state change. The tag names the event, not which case reducer handled it.
+
+### `signalMethod` vs `rxMethod`
+
+Both wrap the returned callable with a `.destroy` function, so the overlay cannot tell them apart from the live store alone. The tab reads the source scan to decide which label to show. A store with no matching declaration file (because its state keys do not line up with any `signalStore` in the scanned source) labels every reactive method as `rxMethod` by default.
+
 ## FAQ
 
 <ngmd-accordion>
@@ -202,7 +234,7 @@ The log keeps the last 200 entries. Set the count with [`limits.changeLog`](../g
 
 <ngmd-card-grid columns="2">
   <ngmd-card icon="wrench" title="Restore NgRx signal state" link="/guides/ngrx-signals-restore" cta="Guide">
-    Register <code>patchState</code> so restore notifies <code>watchState</code>.
+    Register <code>patchState</code> and <code>watchState</code> so restore notifies listeners and each patch gets its own entry.
   </ngmd-card>
   <ngmd-card icon="zap" title="Signals" link="/inspectors/signals" cta="Open">
     The signal graph of the components that read the store.

@@ -18,6 +18,23 @@ export interface NgrxStoreEntry {
   types?: string[];
 }
 
+/**
+ * `selectedId` is set once the app's `selectedId` state field holds a non-null value.
+ * `selected` is only set when that id resolves to an entity in the collection, so a
+ * stale/dangling id shows `selectedId` without `selected`.
+ */
+export interface NgrxEntitiesInfo {
+  collection?: string;
+  idsKey: string;
+  entityMapKey: string;
+  entitiesKey?: string;
+  ids: (string | number)[];
+  count: number;
+  selectedIdKey?: string;
+  selectedId?: unknown;
+  selected?: unknown;
+}
+
 export interface NgrxSignalStoreInfo {
   id: string;
   kind: 'signal-store' | 'signal-state';
@@ -28,7 +45,21 @@ export interface NgrxSignalStoreInfo {
   stateKeys: string[];
   state: Record<string, unknown>;
   computed: Record<string, unknown>;
-  methods: { name: string; calls: number; rx?: boolean }[];
+  /** `withEntities()` collections found in `state`/`computed`. See the collector for details. */
+  entities?: NgrxEntitiesInfo[];
+  /**
+   * `lastDurationMs`/`avgDurationMs` are the wall-clock time of the synchronous method call
+   * only (see {@link NgrxLogEntry.durationMs}), present only once the method has been called
+   * at least once with measurable timing.
+   */
+  methods: {
+    name: string;
+    calls: number;
+    rx?: boolean;
+    signalMethod?: boolean;
+    lastDurationMs?: number;
+    avgDurationMs?: number;
+  }[];
   references: string[];
   writable: boolean;
 }
@@ -51,7 +82,7 @@ export type NgrxActionOrigin = 'dispatch' | 'effect' | 'reactive';
 
 export interface NgrxLogEntry {
   seq: number;
-  source: 'signal-store' | 'store';
+  source: 'signal-store' | 'store' | 'event';
   storeId: string;
   type: string;
   args?: unknown[];
@@ -60,6 +91,17 @@ export interface NgrxLogEntry {
   timestamp: number;
   diff: NgrxDiffEntry[];
   restorable: boolean;
+  /**
+   * Set only for an entry produced by a wrapped `signalStore`/`signalState` method call
+   * (never a plain `patchState`/signal-write entry, a classic-store action entry or an
+   * event entry). How long the synchronous call took to return.
+   */
+  durationMs?: number;
+  /** `source: 'event'` only: the dispatched `@ngrx/signals/events` event's type and payload. */
+  eventType?: string;
+  payload?: unknown;
+  /** `source: 'signal-store'` only: the event that this state change was correlated with. */
+  causedByEvent?: { type: string; payload?: unknown };
   unrestorable?: 'dropped' | 'not-recorded';
 }
 

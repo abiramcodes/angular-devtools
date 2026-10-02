@@ -2,7 +2,12 @@ import { TestBed, type ComponentFixture } from '@angular/core/testing';
 import type { DevframeRpcClient } from 'devframe/client';
 import { afterEach, describe, expect, it } from 'vitest';
 import { StoreInspector } from '../pages/store-inspector';
-import type { NgrxLogEntry, NgrxPage, NgrxStoreEntry } from '../pages/store-types';
+import type {
+  NgrxLogEntry,
+  NgrxPage,
+  NgrxSignalStoreInfo,
+  NgrxStoreEntry,
+} from '../pages/store-types';
 
 type Call = (name: string, arg?: Record<string, unknown>) => Promise<unknown>;
 
@@ -188,5 +193,90 @@ describe('StoreInspector restore', () => {
     expect(button(fixture, 'Restore this state')).toBeUndefined();
     expect(root(fixture).textContent).toMatch(/never recorded this action/);
     expect(root(fixture).textContent).toContain('actionsBlocklist');
+  });
+});
+
+describe('StoreInspector signal store', () => {
+  function signalStore(overrides: Partial<NgrxSignalStoreInfo> = {}): NgrxSignalStoreInfo {
+    return {
+      id: 'ngrx-1',
+      kind: 'signal-store',
+      className: 'ProductStore',
+      scope: 'root',
+      stateKeys: ['count'],
+      state: { count: 0 },
+      computed: {},
+      methods: [],
+      references: [],
+      writable: true,
+      ...overrides,
+    };
+  }
+
+  function signalPage(stores: NgrxSignalStoreInfo[], log: NgrxLogEntry[] = []): NgrxPage {
+    return { pageId: 'p1', url: '/', title: 'App', stores, classic: null, log, reportedAt: 0 };
+  }
+
+  async function mountSignal(stores: NgrxSignalStoreInfo[], log: NgrxLogEntry[] = []) {
+    const fixture = TestBed.createComponent(StoreInspector);
+    fixture.componentRef.setInput(
+      'rpc',
+      fakeClient(
+        (name) => (name === 'get-ngrx-store' ? Promise.resolve([]) : Promise.resolve({})),
+        signalPage(stores, log),
+      ),
+    );
+    await settle(fixture);
+    return fixture;
+  }
+
+  it('shows entity count and ids for a withEntities() store', async () => {
+    const fixture = await mountSignal([
+      signalStore({
+        stateKeys: ['entityMap', 'ids'],
+        state: { entityMap: {}, ids: [] },
+        entities: [{ idsKey: 'ids', entityMapKey: 'entityMap', ids: ['a', 'b', 'c'], count: 3 }],
+      }),
+    ]);
+    const host = root(fixture);
+    expect(host.textContent).toMatch(/3\s+entities/);
+    expect(host.querySelector('.entity-ids')).not.toBeNull();
+    const chips = Array.from(host.querySelectorAll<HTMLElement>('.entity-ids .chip'));
+    expect(chips.map((c) => c.textContent?.trim())).toEqual(['a', 'b', 'c']);
+  });
+
+  it('truncates ids past 30 and shows a +N more chip', async () => {
+    const ids = Array.from({ length: 32 }, (_, i) => String(i));
+    const fixture = await mountSignal([
+      signalStore({
+        stateKeys: ['entityMap', 'ids'],
+        state: { entityMap: {}, ids: [] },
+        entities: [{ idsKey: 'ids', entityMapKey: 'entityMap', ids, count: ids.length }],
+      }),
+    ]);
+    const host = root(fixture);
+    const more = host.querySelector<HTMLElement>('.chip.more');
+    expect(more).not.toBeNull();
+    expect(more?.textContent?.trim()).toBe('+2 more');
+  });
+
+  it('shows avg and last duration for timed methods and omits them for untimed ones', async () => {
+    const fixture = await mountSignal([
+      signalStore({
+        methods: [
+          { name: 'load', calls: 4, avgDurationMs: 10, lastDurationMs: 8 },
+          { name: 'reset', calls: 1 },
+        ],
+      }),
+    ]);
+    const host = root(fixture);
+    const methods = host.querySelector('.methods');
+    expect(methods?.textContent).toContain('avg 10ms');
+    expect(methods?.textContent).toContain('last 8ms');
+    // reset has no duration numbers
+    const resetChip = Array.from(host.querySelectorAll<HTMLElement>('.chip.mono')).find((c) =>
+      c.textContent?.includes('reset'),
+    );
+    expect(resetChip?.textContent).not.toContain('ms');
   });
 });

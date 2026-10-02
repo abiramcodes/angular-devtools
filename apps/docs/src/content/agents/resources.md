@@ -33,14 +33,14 @@ Each one returns JSON.
 
 ## Available resources
 
-| Resource                     | Name                   | Content                         |
-| ---------------------------- | ---------------------- | ------------------------------- |
-| `ng-devtools:component-tree` | Angular Component Tree | Live component hierarchy        |
-| `ng-devtools:signal-graph`   | Angular Signal Graph   | Signal dependency graph         |
-| `ng-devtools:injector-tree`  | Angular Injector Tree  | DI injector hierarchy           |
-| `ng-devtools:ngrx-store`     | NgRx Store State       | Live NgRx stores and change log |
-| `ng-devtools:forms`          | Angular Forms          | Live forms and recent changes   |
-| `ng-devtools:router`         | Angular Router         | Live route and navigations      |
+| Resource                     | Name                   | Content                        |
+| ---------------------------- | ---------------------- | ------------------------------ |
+| `ng-devtools:component-tree` | Angular Component Tree | Live component hierarchy       |
+| `ng-devtools:signal-graph`   | Angular Signal Graph   | Signal dependency graph        |
+| `ng-devtools:injector-tree`  | Angular Injector Tree  | DI injector hierarchy          |
+| `ng-devtools:ngrx-store`     | NgRx Store State       | Live NgRx state and change log |
+| `ng-devtools:forms`          | Angular Forms          | Live forms and recent changes  |
+| `ng-devtools:router`         | Angular Router         | Live route and navigations     |
 
 ### component-tree
 

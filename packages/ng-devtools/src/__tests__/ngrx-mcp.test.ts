@@ -150,3 +150,77 @@ describe('dispatch-ngrx-action tool', () => {
     ).toEqual({ error: expect.stringContaining('dispatching actions') });
   });
 });
+
+const signalPage = (pageId: string, reportedSeq: number): NgrxPageReport => ({
+  pageId,
+  session: 's1',
+  url: `/${pageId}`,
+  title: 'App',
+  stores: [
+    {
+      id: 'ngrx-1',
+      kind: 'signal-store',
+      className: 'SignalStore',
+      scope: 'root',
+      stateKeys: ['query'],
+      state: { query: 'rome' },
+      computed: {},
+      methods: [{ name: 'setQuery', calls: 1, lastDurationMs: 2, avgDurationMs: 2 }],
+      references: [],
+      writable: true,
+    },
+  ],
+  classic: null,
+  log: Array.from({ length: reportedSeq }, (_, i) => ({
+    seq: i + 1,
+    source: 'signal-store' as const,
+    storeId: 'ngrx-1',
+    type: 'setQuery',
+    args: [`q${i + 1}`],
+    timestamp: i + 1,
+    diff: [{ path: 'query', op: 'change' as const, before: `q${i}`, after: `q${i + 1}` }],
+    restorable: true,
+    durationMs: 2,
+  })),
+});
+
+describe('inspect-signal-store and signal-store-history tools', () => {
+  it('are registered with named arguments and hidden with the ngrx inspector off', async () => {
+    const { ctx } = await boot();
+    const tools = ctx.agent.list().tools;
+    for (const id of ['inspect-signal-store', 'signal-store-history']) {
+      const tool = tools.find((t) => t.id === `ng-devtools:${id}`);
+      expect(tool?.inputSchema).toMatchObject({
+        properties: { page: { type: 'string' }, storeId: { type: 'string' } },
+      });
+    }
+    const history = tools.find((t) => t.id === 'ng-devtools:signal-store-history');
+    expect(history?.inputSchema).toMatchObject({ properties: { since: { type: 'number' } } });
+
+    const off = await boot({ inspectors: { ngrx: false } });
+    const offIds = off.ctx.agent.list().tools.map((t) => t.id);
+    expect(offIds).not.toContain('ng-devtools:inspect-signal-store');
+    expect(offIds).not.toContain('ng-devtools:signal-store-history');
+  });
+
+  it('read the pushed page by page, store id and since', async () => {
+    const { push, call } = await boot();
+    expect(await call('inspect-signal-store', {})).toMatch(/No NgRx state has been reported/);
+    await push('push-ngrx-state', signalPage('p1', 3));
+    await push('push-ngrx-state', signalPage('p2', 1));
+
+    const store = await call('inspect-signal-store', { page: 'p1', storeId: 'ngrx-1' });
+    expect(store).toContain('untrusted data');
+    expect(store).toContain('"query": "rome"');
+    expect(store).toContain('`setQuery`: 1 call(s), avg 2ms, last 2ms');
+
+    const history = await call('signal-store-history', { page: 'p1', since: 1 });
+    expect(history).toContain('untrusted data');
+    expect(history).not.toContain('#1 ');
+    expect(history).toContain('#2 ');
+    expect(history).toContain('#3 ');
+    expect(history).toContain('(2ms)');
+    expect(await call('signal-store-history', { since: 1 })).toMatch(/Pass `page`/);
+    expect(await call('signal-store-history', { page: 'p9' })).toMatch(/No page `p9`/);
+  });
+});
