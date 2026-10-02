@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { signal } from '@angular/core';
 import { describe, expect, it, vi } from 'vitest';
+import { domTree } from '../host-tree.ts';
 import { createNgrxCollector } from '../ngrx-collector.ts';
 import { attachNgrx } from '../ngrx-overlay.ts';
 import { diff, serialize, type NgrxPageReport } from '../ngrx-shared.ts';
@@ -78,7 +79,7 @@ function setup(maxLog?: number) {
     ɵgetInjectorProviders: () => [],
   };
   const onChange = vi.fn();
-  const collector = createNgrxCollector(() => ng as any, onChange, document, maxLog);
+  const collector = createNgrxCollector(() => ng as any, onChange, domTree(), maxLog);
   return { store, app, rootEnv, collector, onChange, ng };
 }
 

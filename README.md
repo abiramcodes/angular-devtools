@@ -8,7 +8,7 @@ Inspect Angular component trees, signals, dependency injection, routes, forms, p
 npm install @santoshyadavdev/ng-devtools devframe
 ```
 
-Then follow the [installation guide](./apps/docs/src/content/getting-started/installation.md) for your setup: Angular CLI with Express, Vite and Analog, or the standalone CLI. For a coding agent, run `npx @santoshyadavdev/ng-devtools mcp`.
+Then follow the [installation guide](./apps/docs/src/content/getting-started/installation.md) for your setup: Angular CLI with Express, Vite and Analog, the standalone CLI, or [Angular Native](./apps/docs/src/content/getting-started/angular-native.md). For a coding agent, run `npx @santoshyadavdev/ng-devtools mcp`.
 
 ## Documentation
 
@@ -81,6 +81,7 @@ Thanks to everyone who has contributed:
       <td align="center" valign="top" width="14.28%"><a href="https://www.abikb.xyz/"><img src="https://avatars.githubusercontent.com/u/131433061?v=4?s=100" width="100px;" alt="Abiram"/><br /><sub><b>Abiram</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=abiramcodes" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://kaap10.github.io/portfolio"><img src="https://avatars.githubusercontent.com/u/112063624?v=4?s=100" width="100px;" alt="Vardhman Gupta"/><br /><sub><b>Vardhman Gupta</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=Kaap10" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://github.com/Nicoss54"><img src="https://avatars.githubusercontent.com/u/24563545?v=4?s=100" width="100px;" alt="Nicolas Frizzarin"/><br /><sub><b>Nicolas Frizzarin</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=Nicoss54" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://nstudio.io"><img src="https://avatars.githubusercontent.com/u/457187?v=4?s=100" width="100px;" alt="Nathan Walker"/><br /><sub><b>Nathan Walker</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=NathanWalker" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

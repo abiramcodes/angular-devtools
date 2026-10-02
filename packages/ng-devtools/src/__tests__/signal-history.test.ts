@@ -1,10 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from 'vitest';
-import { installSignalWriteHook } from '../overlay.ts';
 import {
   MAX_CHANGES,
   MAX_NODES,
   createSignalHistory,
+  installSignalWriteHook,
   type RawSignalNode,
 } from '../signal-history.ts';
 import type { SignalGraphNode } from '../types.ts';

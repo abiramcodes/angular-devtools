@@ -59,9 +59,10 @@ Add a rule with these fields:
 - **URL pattern**: a substring, or a glob where `*` matches anything. `/api/*` matches both relative and absolute URLs.
 - **Method**: any, or one method.
 - **Apply on**: SSR + client, SSR only, or client only.
-- **Status**, **Delay (ms)** up to 10000, and an optional JSON body.
+- **Status**: **None**, or a status from the list. The list has the standard 2xx to 5xx statuses, plus `499` (nginx) and `520` to `524` (Cloudflare). Type the code, for example `503`, to jump to it.
+- **Delay (ms)** up to 10000, and an optional JSON body.
 
-A status of 400 or more fails the request with an `HttpErrorResponse`. A lower status returns the body as a mocked response. A body without a status returns it with status 200. A rule with only a delay passes the request through, later. A rule needs a status, a delay or a body, so **Add rule** stays off until it has one. The form clears after each added rule. The first enabled rule that matches wins.
+A status of 400 or more fails the request with an `HttpErrorResponse`. A lower status returns the body as a mocked response. A body with the status on **None** returns it with status 200. A stored rule with a status outside the list loses that status, and is dropped when nothing else is left to change. A rule with only a delay passes the request through, later. A rule needs a status, a delay or a body, so **Add rule** stays off until it has one. The form clears after each added rule. The first enabled rule that matches wins.
 
 The body follows the request's `responseType`. A `json` request gets the parsed JSON (or the raw string when it does not parse) with `content-type: application/json`. A `text` request gets the string with `text/plain`. A `blob` request gets a `Blob`, and an `arraybuffer` request an `ArrayBuffer`, both with `application/octet-stream`. The same value is the `error` of an injected failure.
 
@@ -128,7 +129,7 @@ The interceptor works in development builds only. In production it passes reques
 
 <ngmd-workflow>
   <ngmd-step title="Add a delay-only rule">
-    Enter the URL pattern, leave the status and the body empty, and set a delay, for example 3000 ms. Click <strong>Add rule</strong>.
+    Enter the URL pattern, leave the status on <strong>None</strong> and the body empty, and set a delay, for example 3000 ms. Click <strong>Add rule</strong>.
   </ngmd-step>
   <ngmd-step title="Watch the loading state">
     The request still reaches the API, only later. Its row is marked <strong>delayed 3000 ms</strong>.

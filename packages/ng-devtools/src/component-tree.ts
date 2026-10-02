@@ -1,5 +1,5 @@
-import { childElements, parentOf } from './dom-walk.ts';
 import { elementById, elementId, pruneElementIds } from './element-id.ts';
+import { documentTree, type HostTree } from './host-tree.ts';
 import { className, dependenciesOf, type DebugNg } from './injector-tree.ts';
 import { isSecretName, serializeNamed } from './serialize.ts';
 import type {
@@ -9,16 +9,16 @@ import type {
   LiveComponentNode,
 } from './types.ts';
 
-export interface ComponentDebugNg extends DebugNg {
-  getComponent?(el: Element): unknown;
-  getDirectives?(el: Element): unknown[];
+export interface ComponentDebugNg<H extends object = Element> extends DebugNg<H> {
+  getComponent?(el: H): unknown;
+  getDirectives?(el: H): unknown[];
   getDirectiveMetadata?(instance: unknown): {
     inputs?: Record<string, unknown>;
     outputs?: Record<string, unknown>;
     changeDetection?: number;
     encapsulation?: number;
   } | null;
-  getListeners?(el: Element): { name: string; type?: string }[];
+  getListeners?(el: H): { name: string; type?: string }[];
   isSignal?(value: unknown): boolean;
 }
 
@@ -48,55 +48,43 @@ function nameOf(instance: unknown): string {
   return typeof ctor === 'function' ? className(ctor) : 'Anonymous';
 }
 
-function componentAt(ng: ComponentDebugNg, el: Element): object | null {
+function componentAt<H extends object>(ng: ComponentDebugNg<H>, el: H): object | null {
   const found = read(() => ng.getComponent?.(el) ?? null, null);
   return found && typeof found === 'object' ? found : null;
 }
 
-function directivesAt(ng: ComponentDebugNg, el: Element): object[] {
+function directivesAt<H extends object>(ng: ComponentDebugNg<H>, el: H): object[] {
   const found = read(() => ng.getDirectives?.(el) ?? [], [] as unknown[]);
   return found.filter((d): d is object => !!d && typeof d === 'object');
 }
 
-export function angularRoots(doc: Document = document): Element[] {
-  const tagged = Array.from(doc.querySelectorAll('[ng-version]'));
-  const roots = tagged.filter((root) => !tagged.some((o) => o !== root && o.contains(root)));
-  if (!doc.body) return roots;
-  if (!roots.length) return [doc.body];
-  const outside: Element[] = [];
-  const collect = (el: Element) => {
-    for (const child of childElements(el)) {
-      if (roots.includes(child)) continue;
-      if (roots.some((root) => child.contains(root))) collect(child);
-      else outside.push(child);
-    }
-  };
-  collect(doc.body);
-  return [...roots, ...outside];
-}
-
-export function componentHosts(
-  ng: ComponentDebugNg,
-  doc: Document = document,
+export function componentHosts<H extends object = Element>(
+  ng: ComponentDebugNg<H>,
+  tree: HostTree<H> = documentTree(),
   limit = MAX_COMPONENTS,
-): Element[] {
-  const out: Element[] = [];
-  const visit = (el: Element, depth: number) => {
+): H[] {
+  const out: H[] = [];
+  const visit = (el: H, depth: number) => {
     if (out.length >= limit || depth > MAX_DEPTH) return;
     if (componentAt(ng, el)) out.push(el);
-    for (const child of childElements(el)) visit(child, depth + 1);
+    for (const child of tree.children(el)) visit(child, depth + 1);
   };
-  for (const root of angularRoots(doc)) visit(root, 0);
+  for (const root of tree.roots()) visit(root, 0);
   return out;
 }
 
-function hostsUnder(ng: ComponentDebugNg, scope: Element, tagName: string): Element[] {
-  const out: Element[] = [];
-  const visit = (el: Element, depth: number) => {
+function hostsUnder<H extends object>(
+  ng: ComponentDebugNg<H>,
+  tree: HostTree<H>,
+  scope: H,
+  tag: string,
+): H[] {
+  const out: H[] = [];
+  const visit = (el: H, depth: number) => {
     if (depth > MAX_DEPTH) return;
-    for (const child of childElements(el)) {
+    for (const child of tree.children(el)) {
       if (componentAt(ng, child)) {
-        if (child.tagName === tagName) out.push(child);
+        if (tree.tag(child) === tag) out.push(child);
       } else {
         visit(child, depth + 1);
       }
@@ -106,32 +94,40 @@ function hostsUnder(ng: ComponentDebugNg, scope: Element, tagName: string): Elem
   return out;
 }
 
-export function hostPath(ng: ComponentDebugNg, el: Element): string {
-  const chain: Element[] = [];
-  let top: Element = el;
-  for (let node: Element | null = el; node; node = parentOf(node)) {
+export function hostPath<H extends object = Element>(
+  ng: ComponentDebugNg<H>,
+  el: H,
+  tree: HostTree<H> = documentTree(),
+): string {
+  const chain: H[] = [];
+  let top: H = el;
+  for (let node: H | null = el; node; node = tree.parent(node)) {
     top = node;
     if (componentAt(ng, node)) chain.unshift(node);
   }
   return chain
     .map((node, i) => {
-      const tag = node.tagName.toLowerCase();
+      const tag = tree.tag(node);
       const scope = i > 0 ? chain[i - 1] : top === node ? null : top;
-      const twins = scope ? hostsUnder(ng, scope, node.tagName) : [node];
+      const twins = scope ? hostsUnder(ng, tree, scope, tag) : [node];
       return twins.length > 1 ? `${tag}[${twins.indexOf(node) + 1}]` : tag;
     })
     .join(' > ');
 }
 
-export function componentHostOf(ng: ComponentDebugNg | undefined, el: Element): Element | null {
+export function componentHostOf<H extends object = Element>(
+  ng: ComponentDebugNg<H> | undefined,
+  el: H,
+  tree: HostTree<H> = documentTree(),
+): H | null {
   if (!ng?.getComponent) return null;
-  for (let node: Element | null = el; node; node = parentOf(node)) {
+  for (let node: H | null = el; node; node = tree.parent(node)) {
     if (componentAt(ng, node)) return node;
   }
   return null;
 }
 
-function unwrap(ng: ComponentDebugNg, value: unknown): unknown {
+function unwrap<H extends object>(ng: ComponentDebugNg<H>, value: unknown): unknown {
   if (typeof value !== 'function') return value;
   const signal = read(() => !!ng.isSignal?.(value), false);
   return signal ? read(() => (value as () => unknown)(), undefined) : value;
@@ -143,8 +139,8 @@ function propName(entry: unknown, fallback: string): string {
   return fallback;
 }
 
-function readInputs(
-  ng: ComponentDebugNg,
+function readInputs<H extends object>(
+  ng: ComponentDebugNg<H>,
   instance: object,
   inputs: Record<string, unknown> | undefined,
 ): ComponentProp[] {
@@ -158,7 +154,10 @@ function readInputs(
     });
 }
 
-function resourceOf(ng: ComponentDebugNg, value: unknown): Record<string, unknown> | null {
+function resourceOf<H extends object>(
+  ng: ComponentDebugNg<H>,
+  value: unknown,
+): Record<string, unknown> | null {
   if (!value || typeof value !== 'object') return null;
   const ref = value as Record<string, unknown>;
   const isSignal = (field: unknown) => read(() => !!ng.isSignal?.(field), false);
@@ -181,7 +180,11 @@ function resourceOf(ng: ComponentDebugNg, value: unknown): Record<string, unknow
   return snapshot;
 }
 
-function injectedValues(ng: ComponentDebugNg, injector: unknown, owner: unknown): Set<unknown> {
+function injectedValues<H extends object>(
+  ng: ComponentDebugNg<H>,
+  injector: unknown,
+  owner: unknown,
+): Set<unknown> {
   const values = new Set<unknown>();
   const result = read(() => ng.ɵgetDependenciesFromInjectable?.(injector, owner) ?? null, null);
   for (const dep of result?.dependencies ?? []) {
@@ -190,8 +193,8 @@ function injectedValues(ng: ComponentDebugNg, injector: unknown, owner: unknown)
   return values;
 }
 
-function readProperties(
-  ng: ComponentDebugNg,
+function readProperties<H extends object>(
+  ng: ComponentDebugNg<H>,
   instance: object,
   skip: Set<string>,
   injected: Set<unknown>,
@@ -235,7 +238,12 @@ function readOutputs(
     .map(([name, entry]) => ({ name, prop: propName(entry, name), listened: listened.has(name) }));
 }
 
-export function componentDetail(ng: ComponentDebugNg, el: Element): ComponentDetail | null {
+export function componentDetail<H extends object = Element>(
+  ng: ComponentDebugNg<H>,
+  el: H,
+  tree?: HostTree<H>,
+): ComponentDetail | null {
+  const hosts = tree ?? documentTree<H>();
   const instance = componentAt(ng, el);
   if (!instance) return null;
   const meta = read(() => ng.getDirectiveMetadata?.(instance) ?? null, null);
@@ -257,8 +265,8 @@ export function componentDetail(ng: ComponentDebugNg, el: Element): ComponentDet
   const detail: ComponentDetail = {
     id: elementId(el),
     name: nameOf(instance),
-    tag: el.tagName.toLowerCase(),
-    path: hostPath(ng, el),
+    tag: hosts.tag(el),
+    path: hostPath(ng, el, hosts),
     inputs: readInputs(ng, instance, meta?.inputs),
     outputs: readOutputs(meta?.outputs, listened),
     properties: readProperties(ng, instance, bound, injected),
@@ -279,20 +287,27 @@ export function componentDetail(ng: ComponentDebugNg, el: Element): ComponentDet
   if (typeof enc === 'number' && ENCAPSULATION[enc]) detail.encapsulation = ENCAPSULATION[enc];
 
   if (injector) {
-    detail.dependencies = dependenciesOf(ng, injector, [instance.constructor], true);
+    detail.dependencies = dependenciesOf(
+      ng,
+      injector,
+      [instance.constructor],
+      true,
+      undefined,
+      tree,
+    );
   }
   return detail;
 }
 
-export function collectComponentTree(
-  ng: ComponentDebugNg | undefined,
-  options: { doc?: Document; selectedId?: string | null } = {},
+export function collectComponentTree<H extends object = Element>(
+  ng: ComponentDebugNg<H> | undefined,
+  options: { tree?: HostTree<H>; selectedId?: string | null } = {},
 ): Omit<ComponentTreeReport, 'pageId'> {
-  const doc = options.doc ?? document;
+  const tree = options.tree ?? documentTree<H>();
   const report: Omit<ComponentTreeReport, 'pageId'> = { roots: [], count: 0, detail: null };
   if (!ng?.getComponent) return report;
 
-  const visit = (el: Element, out: LiveComponentNode[], depth: number) => {
+  const visit = (el: H, out: LiveComponentNode[], depth: number) => {
     if (depth > MAX_DEPTH) {
       report.truncated = true;
       report.truncatedBy = { ...report.truncatedBy, depth: MAX_DEPTH };
@@ -310,7 +325,7 @@ export function collectComponentTree(
       const node: LiveComponentNode = {
         id: elementId(el),
         name: nameOf(instance),
-        tag: el.tagName.toLowerCase(),
+        tag: tree.tag(el),
         children: [],
       };
       const directives = directivesAt(ng, el)
@@ -320,12 +335,13 @@ export function collectComponentTree(
       out.push(node);
       target = node.children;
     }
-    for (const child of childElements(el)) visit(child, target, depth + 1);
+    for (const child of tree.children(el)) visit(child, target, depth + 1);
   };
-  for (const root of angularRoots(doc)) visit(root, report.roots, 0);
+  for (const root of tree.roots()) visit(root, report.roots, 0);
 
-  pruneElementIds();
-  const selected = options.selectedId ? elementById(options.selectedId) : null;
-  if (selected) report.detail = componentDetail(ng, selected);
+  const connected = (host: object) => tree.isHost(host) && tree.connected(host);
+  pruneElementIds(connected);
+  const selected = options.selectedId ? elementById<H>(options.selectedId, connected) : null;
+  if (selected) report.detail = componentDetail(ng, selected, options.tree);
   return report;
 }

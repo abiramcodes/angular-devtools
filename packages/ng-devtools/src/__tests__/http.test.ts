@@ -128,6 +128,21 @@ describe('sanitizeRules', () => {
     ]);
   });
 
+  it('keeps only statuses from the rule status list', () => {
+    const rules = sanitizeRules([
+      { id: 'cf', pattern: '/a', status: 522 },
+      { id: 'nginx', pattern: '/b', status: 499 },
+      { id: 'unknown', pattern: '/c', status: 599 },
+      { id: 'info', pattern: '/d', status: 101 },
+      { id: 'body', pattern: '/e', status: 599, body: '{}' },
+    ]);
+    expect(rules.map((r) => [r.id, r.status])).toEqual([
+      ['cf', 522],
+      ['nginx', 499],
+      ['body', 200],
+    ]);
+  });
+
   it('rejects bad methods and caps the rule count', () => {
     expect(
       sanitizeRules([{ pattern: '/a', method: 'G T', status: 500 }])[0].method,

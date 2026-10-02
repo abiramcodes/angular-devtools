@@ -26,6 +26,8 @@
     "devtools:standalone": "node bin.mjs dev",
     "devtools:mcp": "node bin.mjs mcp",
     "devtools:report": "node bin.mjs build --outDir dist-report",
+    "devtools:nativescript": "cd examples/nativescript && node ../../bin.mjs dev --no-auth",
+    "devtools:nativescript:device": "cd examples/nativescript && node ../../bin.mjs dev --host 0.0.0.0 --no-auth",
     "devtools:build-pkg": "pnpm --filter @santoshyadavdev/ng-devtools build",
     "devtools:publish": "pnpm --filter @santoshyadavdev/ng-devtools publish --access public",
     "verify:publish": "node scripts/verify-publish.mjs",
