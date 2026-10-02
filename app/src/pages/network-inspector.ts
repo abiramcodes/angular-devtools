@@ -16,6 +16,7 @@ import type { DevframeRpcClient } from 'devframe/client';
 import { hostPageId } from '../page-id';
 import { rpcCall as call } from '../rpc';
 import { actionAllowed, actionBlockedMessage, panelConfig } from '../devtools-config';
+import { HTTP_RULE_STATUSES, isHttpRuleStatus } from '@santoshyadavdev/ng-devtools/config';
 import { LimitNote } from '../ui/limit-note';
 import { Select, type SelectOption } from '../ui/select';
 
@@ -125,6 +126,14 @@ const EMPTY_DRAFT: RuleDraft = {
 };
 
 const MAX_RULES = 50;
+
+const HTTP_STATUS_OPTIONS: SelectOption[] = [
+  { value: '', label: 'None' },
+  ...HTTP_RULE_STATUSES.map(([status, reason]) => ({
+    value: String(status),
+    label: `${status} ${reason}`,
+  })),
+];
 
 @Component({
   selector: 'app-network-inspector',
@@ -336,20 +345,15 @@ const MAX_RULES = 50;
             </div>
           </div>
           <div class="row">
-            <label>
-              Status
-              <input
-                type="number"
-                inputmode="numeric"
-                min="100"
-                max="599"
-                placeholder="e.g. 500"
+            <div class="field-group">
+              <span id="rule-status-label">Status</span>
+              <app-select
+                labelledBy="rule-status-label"
+                [options]="statusOptions"
                 [value]="draft().status"
-                (input)="patch('status', $event)"
-                [attr.aria-invalid]="statusError() ? 'true' : null"
-                aria-describedby="rule-hint"
+                (valueChange)="setDraft('status', $event ?? '')"
               />
-            </label>
+            </div>
             <label>
               Delay (ms)
               <input
@@ -1373,6 +1377,7 @@ export class NetworkInspector {
   readonly draft = signal<RuleDraft>({ ...EMPTY_DRAFT });
   readonly message = signal('');
   readonly bodyPlaceholder = '{ "error": "Service unavailable" }';
+  readonly statusOptions = HTTP_STATUS_OPTIONS;
 
   private unsubscribe: (() => void)[] = [];
   private readonly destroyRef = inject(DestroyRef);
@@ -1411,23 +1416,15 @@ export class NetworkInspector {
     return !!rule && this.mocksOnServer(rule);
   });
 
-  readonly statusError = computed(() => {
-    const raw = this.draft().status.trim();
-    if (!raw) return '';
-    const status = Number(raw);
-    return Number.isInteger(status) && status >= 100 && status <= 599
-      ? ''
-      : 'Set a status from 100 to 599.';
-  });
-
   readonly draftRule = computed<Omit<HttpRule, 'id'> | null>(() => {
     const draft = this.draft();
     const pattern = draft.pattern.trim();
-    if (!pattern || this.bodyError() || this.statusError()) return null;
+    if (!pattern || this.bodyError()) return null;
     if (this.rules().length >= MAX_RULES) return null;
     const body = draft.body.trim();
     const delayMs = Math.min(Math.max(Math.round(Number(draft.delayMs)) || 0, 0), 10_000);
     const status = draft.status.trim() ? Number(draft.status) : body ? 200 : undefined;
+    if (status !== undefined && !isHttpRuleStatus(status)) return null;
     if (status === undefined && !delayMs) return null;
     return {
       pattern,
@@ -1446,8 +1443,9 @@ export class NetworkInspector {
       return `You can add up to ${MAX_RULES} rules. Remove one to add another.`;
     }
     if (!draft.pattern.trim()) return 'Enter a URL pattern to add a rule.';
-    if (this.statusError()) return this.statusError();
     if (this.bodyError()) return '';
+    if (draft.status.trim() && !isHttpRuleStatus(Number(draft.status)))
+      return 'Pick a status from the list.';
     if (!this.draftRule()) return 'Set a status, a delay or a mock body.';
     if (!draft.status.trim() && draft.body.trim())
       return 'With no status, the mock body returns 200.';
