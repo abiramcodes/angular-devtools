@@ -285,6 +285,14 @@ const ORIGINS = ['all', 'user', 'code', 'devtools'] as const;
       color: #fde68a;
       overflow-wrap: anywhere;
     }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme='dark']) :host .path {
+        color: var(--accent);
+      }
+    }
+    :root[data-theme='light'] :host .path {
+      color: var(--accent);
+    }
     .event-type {
       color: var(--text-strong);
       font-size: 12px;

@@ -62,7 +62,7 @@ pnpm skills:check                             # agent skills and roles
 pnpm exec ngc -p app/tsconfig.json --noEmit   # panel template check
 ```
 
-For UI changes, also check the pages in a browser with axe, at a wide and a narrow width (the panel is dark only). The [devtools-verify skill](.claude/skills/devtools-verify/SKILL.md) lists the exact steps.
+For UI changes, also check the pages in a browser with axe in both dark and light color schemes, at a wide and a narrow width. The [devtools-verify skill](.claude/skills/devtools-verify/SKILL.md) lists the exact steps.
 
 ## Submit a pull request
 

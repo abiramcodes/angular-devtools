@@ -379,4 +379,59 @@ describe.sequential('devtools popup', () => {
       expect(shown).toEqual([]);
     });
   });
+
+  describe('theme sync', () => {
+    it('persists the detected theme and restores it on the next open', async () => {
+      await loadPopup(true);
+      const doc = await frameDocument();
+      doc.documentElement.dataset['theme'] = 'light';
+
+      await vi.waitFor(() =>
+        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
+      );
+      expect(stored().theme).toBe('light');
+
+      // Reload — saved theme is applied immediately without waiting for iframe
+      await loadPopup(true);
+      expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light');
+    });
+
+    it('detects theme from the hub color-root class', async () => {
+      await loadPopup(true);
+      const doc = await frameDocument();
+      const colorRoot = doc.createElement('div');
+      colorRoot.classList.add('devframes-color-root', 'light');
+      doc.body.appendChild(colorRoot);
+
+      await vi.waitFor(() =>
+        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
+      );
+    });
+
+    it('detects theme from the hub color-scheme style', async () => {
+      await loadPopup(true);
+      const doc = await frameDocument();
+      doc.documentElement.style.colorScheme = 'light';
+
+      await vi.waitFor(() =>
+        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
+      );
+    });
+
+    it('removes popup light theme when panel switches back to dark', async () => {
+      await loadPopup(true);
+      const doc = await frameDocument();
+      doc.documentElement.dataset['theme'] = 'light';
+
+      await vi.waitFor(() =>
+        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
+      );
+
+      doc.documentElement.dataset['theme'] = 'dark';
+      await vi.waitFor(() =>
+        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBeUndefined(),
+      );
+      expect(stored().theme).toBe('dark');
+    });
+  });
 });

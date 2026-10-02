@@ -13,21 +13,49 @@ $neutrals: (
   text-3: #8e8e99,
 );
 
+$neutrals-light: (
+  bg: #ffffff,
+  surface: #f7f7f9,
+  surface-2: #f0f0f3,
+  surface-3: #e8e8ec,
+  border: #e2e2e7,
+  border-strong: #c8c8d0,
+  text: #18181b,
+  text-strong: #0a0a0d,
+  text-2: #52525b,
+  text-3: #5f5f68,
+);
+
 $accents: (
   amber: (
     base: #f5a524,
     hover: #fbbf4d,
     ink: #1c1300,
+    light: (
+      base: #92400e,
+      hover: #a04510,
+      ink: #ffffff,
+    ),
   ),
   ember: (
     base: #fb7a3c,
     hover: #fd9a67,
     ink: #1f0a00,
+    light: (
+      base: #9a3412,
+      hover: #b04016,
+      ink: #ffffff,
+    ),
   ),
   gold: (
     base: #eab308,
     hover: #facc15,
     ink: #1a1400,
+    light: (
+      base: #713f12,
+      hover: #854d0e,
+      ink: #ffffff,
+    ),
   ),
 );
 
@@ -37,6 +65,16 @@ $status: (
   danger: #f87171,
 );
 
-@function accent($name, $key) {
-  @return map.get(map.get($accents, $name), $key);
+$status-light: (
+  ok: #166534,
+  warn: #92400e,
+  danger: #b91c1c,
+);
+
+@function accent($name, $key, $subkey: null) {
+  $a: map.get($accents, $name);
+  @if $subkey {
+    @return map.get(map.get($a, $key), $subkey);
+  }
+  @return map.get($a, $key);
 }

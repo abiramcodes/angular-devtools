@@ -111,13 +111,34 @@ function showStatus(message, { tried = [], allow = null, help = true } = {}) {
   docsLink.hidden = !help;
 }
 
+function applyTheme(themeName) {
+  // 'default' means Chrome is using its light theme.
+  const theme = themeName === 'dark' ? 'dark' : 'light';
+  document.documentElement.dataset.theme = theme;
+}
+
 function loadPanel(baseURL, pageId) {
   const src = new URL(chrome.runtime.getURL('ui/index.html'));
   src.searchParams.set('baseURL', baseURL.href);
   if (typeof pageId === 'string' && pageId) src.searchParams.set('pageId', pageId);
+  const themeName = chrome.devtools.panels.themeName || 'dark';
+  src.searchParams.set('theme', themeName);
+  applyTheme(themeName);
   frame.src = src.href;
   status.classList.add('hidden');
   frame.style.display = 'block';
+
+  if (chrome.devtools.panels.setThemeChangeHandler) {
+    chrome.devtools.panels.setThemeChangeHandler(function (name) {
+      applyTheme(name);
+      if (frame.contentWindow) {
+        frame.contentWindow.postMessage(
+          { type: 'ng-devtools:theme-change', theme: name },
+          chrome.runtime.getURL(''),
+        );
+      }
+    });
+  }
 }
 
 chrome.devtools.panels.elements.onSelectionChanged.addListener(async () => {

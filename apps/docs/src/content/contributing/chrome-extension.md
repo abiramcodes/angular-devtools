@@ -121,6 +121,10 @@ Outside the extension, the UI accepts a `baseURL` only on its own origin. Inside
 
 On each navigation of the inspected page, the panel shows its status view again and repeats the whole search.
 
+### Theme
+
+The panel follows the DevTools color scheme. `panel-bridge.js` reads `chrome.devtools.panels.themeName` on load and passes it as `?theme=dark` or `?theme=default` (light). It registers `setThemeChangeHandler` to send an `ng-devtools:theme-change` message to the UI frame when the user switches DevTools between dark and light. The `ThemeService` inside the Angular app applies the corresponding `data-theme` attribute to `<html>` and updates all CSS tokens.
+
 ### Elements panel selection
 
 The overlay defines `window.__ngDevtoolsComponentOf` on the page. It takes an element and returns the id of the nearest component host, through shadow roots, or `null`.

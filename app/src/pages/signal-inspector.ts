@@ -782,7 +782,7 @@ const KIND_COLORS: Record<string, string> = {
       line-height: 18px;
       padding: 0 8px;
       border-radius: 99px;
-      color: var(--bg);
+      color: #0b0b0e;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.06em;
@@ -1170,6 +1170,18 @@ const KIND_COLORS: Record<string, string> = {
       color: #93c5fd;
       background: color-mix(in srgb, #60a5fa 12%, transparent);
       border-color: color-mix(in srgb, #60a5fa 30%, transparent);
+    }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme='dark']) :host .source-write {
+        color: #1d4ed8;
+        background: color-mix(in srgb, #1d4ed8 12%, transparent);
+        border-color: color-mix(in srgb, #1d4ed8 30%, transparent);
+      }
+    }
+    :root[data-theme='light'] :host .source-write {
+      color: #1d4ed8;
+      background: color-mix(in srgb, #1d4ed8 12%, transparent);
+      border-color: color-mix(in srgb, #1d4ed8 30%, transparent);
     }
     .missed {
       color: var(--warn);

@@ -16,6 +16,19 @@
         height: 100%;
         overflow: hidden;
         background: #0f0f11;
+        color-scheme: dark;
+      }
+      @media (prefers-color-scheme: light) {
+        html:not([data-theme='dark']),
+        html:not([data-theme='dark']) body {
+          background: #ffffff;
+          color-scheme: light;
+        }
+      }
+      html[data-theme='light'],
+      html[data-theme='light'] body {
+        background: #ffffff;
+        color-scheme: light;
       }
       iframe {
         width: 100%;
@@ -60,6 +73,40 @@
       .status :focus-visible {
         outline: 2px solid #f5a524;
         outline-offset: 2px;
+      }
+      @media (prefers-color-scheme: light) {
+        html:not([data-theme='dark']) .status {
+          color: #52525b;
+        }
+        html:not([data-theme='dark']) .status ul {
+          color: #18181b;
+        }
+        html:not([data-theme='dark']) .status button {
+          background: #92400e;
+          color: #ffffff;
+        }
+        html:not([data-theme='dark']) .status a {
+          color: #92400e;
+        }
+        html:not([data-theme='dark']) .status :focus-visible {
+          outline-color: #92400e;
+        }
+      }
+      html[data-theme='light'] .status {
+        color: #52525b;
+      }
+      html[data-theme='light'] .status ul {
+        color: #18181b;
+      }
+      html[data-theme='light'] .status button {
+        background: #92400e;
+        color: #ffffff;
+      }
+      html[data-theme='light'] .status a {
+        color: #92400e;
+      }
+      html[data-theme='light'] .status :focus-visible {
+        outline-color: #92400e;
       }
     </style>
   </head>

@@ -263,6 +263,14 @@ export class FormsSubmit {
     .path code {
       color: #fde68a;
     }
+    @media (prefers-color-scheme: light) {
+      :root:not([data-theme='dark']) :host .path code {
+        color: var(--accent);
+      }
+    }
+    :root[data-theme='light'] :host .path code {
+      color: var(--accent);
+    }
     .message,
     .fix {
       margin: 0;

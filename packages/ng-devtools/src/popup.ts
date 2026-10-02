@@ -17,6 +17,7 @@ interface PopupState {
   docked: 'float' | 'bottom' | 'right';
   /** Where the launcher was left, so it can sit anywhere, not just a corner. */
   launcher?: { x: number; y: number };
+  theme?: 'light' | 'dark';
 }
 
 const DEFAULT_STATE: PopupState = { x: 16, y: 16, width: 720, height: 480, docked: 'float' };
@@ -43,6 +44,7 @@ function loadState(): PopupState {
       ...(point && Number.isFinite(point.x) && Number.isFinite(point.y)
         ? { launcher: { x: point.x, y: point.y } }
         : {}),
+      ...(saved.theme === 'light' || saved.theme === 'dark' ? { theme: saved.theme } : {}),
     };
   } catch {
     return { ...DEFAULT_STATE };
@@ -268,7 +270,49 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
   // Styles
   const style = document.createElement('style');
   style.textContent = `
-    :host { all: initial; }
+    :host {
+      all: initial;
+      color-scheme: light dark;
+      --_bg:       #0f0f11;
+      --_surface:  #18181b;
+      --_border:   #27272a;
+      --_text:     #d4d4d8;
+      --_text-str: #fafafa;
+      --_text-dim: #8a8a94;
+      --_hover-bg: #27272a;
+      --_hover-fg: #e4e4e7;
+      --_shadow:   0 8px 32px rgba(0,0,0,0.5);
+      --_accent:   var(--ng-devtools-title, #f5a524);
+      --_fab-open: #3f3f46;
+    }
+    @media (prefers-color-scheme: light) {
+      :host {
+        --_bg:       #ffffff;
+        --_surface:  #f4f4f6;
+        --_border:   #e2e2e7;
+        --_text:     #18181b;
+        --_text-str: #0a0a0d;
+        --_text-dim: #52525b;
+        --_hover-bg: #e8e8ec;
+        --_hover-fg: #18181b;
+        --_shadow:   0 4px 24px rgba(0,0,0,0.1);
+        --_accent:   var(--ng-devtools-title, #c2410c);
+        --_fab-open: #e4e4e7;
+      }
+    }
+    :host([data-theme='light']) {
+      --_bg:       #ffffff;
+      --_surface:  #f4f4f6;
+      --_border:   #e2e2e7;
+      --_text:     #18181b;
+      --_text-str: #0a0a0d;
+      --_text-dim: #52525b;
+      --_hover-bg: #e8e8ec;
+      --_hover-fg: #18181b;
+      --_shadow:   0 4px 24px rgba(0,0,0,0.1);
+      --_accent:   var(--ng-devtools-title, #c2410c);
+      --_fab-open: #e4e4e7;
+    }
     .fab {
       position: fixed;
       z-index: 2147483646;
@@ -291,7 +335,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       transition: transform 0.15s, filter 0.15s;
     }
     .fab:hover { filter: brightness(1.1); transform: scale(1.08); }
-    .fab.open { background: #3f3f46; }
+    .fab.open { background: var(--_fab-open); }
     .fab.dragging {
       transition: none;
       cursor: grabbing;
@@ -299,7 +343,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
     }
     /* The shadow root cannot inherit the page's focus styles. */
     .dock-btn:focus-visible, .close-btn:focus-visible {
-      outline: 2px solid #fff;
+      outline: 2px solid var(--_text-str);
       outline-offset: 2px;
     }
     /* The launcher sits on the host page, whose background is unknown, so the
@@ -323,11 +367,11 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       transform: translateY(8px) scale(0.98);
       transform-origin: bottom right;
       transition: opacity 160ms ease, transform 160ms ease, visibility 0s linear 160ms;
-      background: #0f0f11;
-      border: 1px solid #27272a;
+      background: var(--_bg);
+      border: 1px solid var(--_border);
       border-radius: 10px;
       overflow: hidden;
-      box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+      box-shadow: var(--_shadow);
       resize: both;
     }
     .panel.open {
@@ -375,8 +419,8 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       align-items: center;
       gap: 8px;
       padding: 6px 12px;
-      background: #18181b;
-      border-bottom: 1px solid #27272a;
+      background: var(--_surface);
+      border-bottom: 1px solid var(--_border);
       user-select: none;
       touch-action: none;
       min-height: 36px;
@@ -386,7 +430,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       font-family: system-ui, sans-serif;
       font-size: 13px;
       font-weight: 600;
-      color: var(--ng-devtools-title, #f5a524);
+      color: var(--_accent);
       flex: 1;
     }
     .dock-group {
@@ -396,22 +440,22 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
     .dock-btn, .close-btn {
       border: none;
       background: transparent;
-      color: #8a8a94;
+      color: var(--_text-dim);
       cursor: pointer;
       font-size: 14px;
       padding: 2px 6px;
       border-radius: 4px;
       line-height: 1;
     }
-    .dock-btn:hover, .close-btn:hover { background: #27272a; color: #e4e4e7; }
-    .dock-btn.active { color: var(--ng-devtools-title, #f5a524); }
+    .dock-btn:hover, .close-btn:hover { background: var(--_hover-bg); color: var(--_hover-fg); }
+    .dock-btn.active { color: var(--_accent); }
     .close-btn { font-size: 13px; }
     .frame {
       flex: 1;
       border: none;
       width: 100%;
       height: 100%;
-      background: #0f0f11;
+      background: var(--_bg);
     }
     .frame[hidden], .missing[hidden] { display: none; }
     .missing {
@@ -421,7 +465,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       font-family: system-ui, sans-serif;
       font-size: 13px;
       line-height: 1.5;
-      color: #d4d4d8;
+      color: var(--_text);
     }
     .missing p, .missing h2 { margin: 0 0 12px; max-width: 60ch; }
     .sr-only {
@@ -435,9 +479,9 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       white-space: nowrap;
       border: 0;
     }
-    .missing .missing-title { font-size: 15px; font-weight: 600; color: #fafafa; }
-    .missing a { color: var(--ng-devtools-title, #f5a524); }
-    .missing a:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+    .missing .missing-title { font-size: 15px; font-weight: 600; color: var(--_text-str); }
+    .missing a { color: var(--_accent); }
+    .missing a:focus-visible { outline: 2px solid var(--_text-str); outline-offset: 2px; }
   `;
 
   fab.classList.add('fab');
@@ -757,6 +801,102 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
     saveState(state);
   });
 
+  // Sync popup chrome theme to the panel inside the iframe.
+  const applyPopupTheme = (theme: unknown) => {
+    const t = theme === 'light' ? 'light' : 'dark';
+    if (t === 'light') {
+      popupRoot!.dataset['theme'] = 'light';
+    } else {
+      delete popupRoot!.dataset['theme'];
+    }
+    if (state.theme !== t) {
+      state.theme = t;
+      saveState(state);
+    }
+  };
+
+  // Apply persisted theme immediately to prevent a dark flash.
+  if (state.theme === 'light') popupRoot.dataset['theme'] = 'light';
+
+  // Walk nested same-origin iframes to detect the current theme from:
+  // 1. <html data-theme="light"> on the panel SPA
+  // 2. .devframes-color-root.light on the hub page
+  // 3. color-scheme: light on the hub's <html> style
+  type ThemeTarget = { element: HTMLElement; attr: string };
+  const findThemeTarget = (doc: Document): ThemeTarget | null => {
+    if (doc.documentElement.dataset['theme']) {
+      return { element: doc.documentElement, attr: 'data-theme' };
+    }
+    const colorRoot = doc.querySelector('.devframes-color-root') as HTMLElement | null;
+    if (colorRoot) {
+      return { element: colorRoot, attr: 'class' };
+    }
+    if (doc.documentElement.style.colorScheme) {
+      return { element: doc.documentElement, attr: 'style' };
+    }
+    for (const f of doc.querySelectorAll('iframe')) {
+      try {
+        if (f.contentDocument) {
+          const found = findThemeTarget(f.contentDocument);
+          if (found) return found;
+        }
+      } catch {
+        /* cross-origin frame, skip */
+      }
+    }
+    return null;
+  };
+  const readTheme = (target: ThemeTarget): 'light' | 'dark' => {
+    if (target.attr === 'data-theme')
+      return target.element.dataset['theme'] === 'light' ? 'light' : 'dark';
+    if (target.attr === 'class')
+      return target.element.classList.contains('light') ? 'light' : 'dark';
+    if (target.attr === 'style')
+      return (target.element as HTMLElement).style.colorScheme === 'light' ? 'light' : 'dark';
+    return 'dark';
+  };
+  let themeObserver: MutationObserver | undefined;
+  const checkNestedTheme = () => {
+    if (themeObserver) return;
+    try {
+      const doc = iframe.contentDocument;
+      if (!doc) return;
+      const target = findThemeTarget(doc);
+      if (target) {
+        applyPopupTheme(readTheme(target));
+        themeObserver = new MutationObserver(() => applyPopupTheme(readTheme(target)));
+        themeObserver.observe(target.element, {
+          attributes: true,
+          attributeFilter:
+            target.attr === 'style'
+              ? ['style']
+              : target.attr === 'class'
+                ? ['class']
+                : ['data-theme'],
+        });
+      }
+    } catch {
+      /* cross-origin or detached, skip */
+    }
+  };
+  const themePoller = setInterval(checkNestedTheme, 400);
+  iframe.addEventListener('load', () => setTimeout(checkNestedTheme, 50));
+
+  // BroadcastChannel and postMessage as additional paths (for when the panel
+  // has the sender code or for cross-origin extension setups).
+  let themeChannel: BroadcastChannel | undefined;
+  try {
+    themeChannel = new BroadcastChannel('ng-devtools:theme');
+    themeChannel.onmessage = (e) => applyPopupTheme(e.data);
+  } catch {}
+  const onThemeMessage = (e: MessageEvent) => {
+    if (e.source === window) return;
+    const msg = e.data as { type?: unknown; theme?: unknown } | null;
+    if (msg?.type !== 'ng-devtools:theme-change') return;
+    applyPopupTheme(msg.theme);
+  };
+  window.addEventListener('message', onThemeMessage);
+
   applyLauncher();
   // Keep it reachable when the window changes size.
   window.addEventListener('resize', applyLauncher);
@@ -780,6 +920,10 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
   handle = {
     toggle: togglePanel,
     destroy: () => {
+      clearInterval(themePoller);
+      themeObserver?.disconnect();
+      themeChannel?.close();
+      window.removeEventListener('message', onThemeMessage);
       window.removeEventListener('resize', applyLauncher);
       window.removeEventListener('resize', applyDock);
       document.removeEventListener('toggle', onTopLayerOpen, true);

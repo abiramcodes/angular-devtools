@@ -68,7 +68,7 @@ try {
   }
   await rootPage.close();
 
-  for (const colorScheme of ['dark']) {
+  for (const colorScheme of ['dark', 'light']) {
     const context = await browser.newContext({
       colorScheme,
       reducedMotion: 'reduce',
