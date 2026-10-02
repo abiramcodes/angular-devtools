@@ -1,5 +1,5 @@
 import { untracked } from '@angular/core';
-import { walkElements } from './dom-walk.ts';
+import { documentTree, type HostTree } from './host-tree.ts';
 import { className, tokenName } from './injector-tree.ts';
 import {
   diff,
@@ -21,9 +21,9 @@ import { registeredPatchState, registeredWatchState } from './ngrx-register.ts';
 
 type AnyRecord = Record<PropertyKey, any>;
 
-export interface NgrxDebugNg {
-  getInjector?(el: Element): unknown;
-  getComponent?(el: Element): unknown;
+export interface NgrxDebugNg<H extends object = Element> {
+  getInjector?(el: H): unknown;
+  getComponent?(el: H): unknown;
   ɵgetInjectorMetadata?(injector: unknown): { type: string; source: unknown } | null;
   ɵgetInjectorProviders?(injector: unknown): { token: unknown; isViewProvider?: boolean }[];
   ɵgetInjectorResolutionPath?(injector: unknown): unknown[];
@@ -151,15 +151,18 @@ function stripped(token: unknown): string {
   return tokenName(token).replace(/^_+/, '');
 }
 
-function componentElements(ng: NgrxDebugNg, doc: Document): Element[] {
-  const out: Element[] = [];
-  for (const el of walkElements(doc.body ?? doc.documentElement) as Generator<Element>) {
+function componentElements<H extends object>(ng: NgrxDebugNg<H>, tree: HostTree<H>): H[] {
+  const out: H[] = [];
+  const stack = [...tree.roots()].reverse();
+  while (stack.length) {
+    const el = stack.pop()!;
     if (read(() => !!ng.getComponent?.(el), false)) out.push(el);
+    stack.push(...[...tree.children(el)].reverse());
   }
   return out;
 }
 
-function envScope(ng: NgrxDebugNg, injector: AnyRecord): string {
+function envScope<H extends object>(ng: NgrxDebugNg<H>, injector: AnyRecord): string {
   if (read(() => injector['scopes']?.has?.('root'), false)) return 'root';
   if (read(() => injector['scopes']?.has?.('platform'), false)) return 'platform';
   const source = read(() => ng.ɵgetInjectorMetadata?.(injector)?.source, undefined);
@@ -222,10 +225,10 @@ export interface NgrxCollector {
   stop(): void;
 }
 
-export function createNgrxCollector(
-  getNg: () => NgrxDebugNg | undefined,
+export function createNgrxCollector<H extends object = Element>(
+  getNg: () => NgrxDebugNg<H> | undefined,
   onChange: () => void,
-  doc: Document = document,
+  tree: HostTree<H> = documentTree(),
   maxLog = MAX_LOG,
 ): NgrxCollector {
   const ids = new WeakMap<object, string>();
@@ -247,7 +250,7 @@ export function createNgrxCollector(
   let dispatcherUndo: (() => void) | null = null;
   // Tracks per-element cleanup for component-scoped Dispatcher instances.
   // Released in discover() when the element is no longer present.
-  const componentDispatcherUndos = new Map<Element, () => void>();
+  const componentDispatcherUndos = new Map<H, () => void>();
   const attachedDispatchers = new WeakSet<AnyRecord>();
   let lost: (NgrxUnrestorableUpdate & { at: number })[] = [];
   let lostSeq = 0;
@@ -551,7 +554,7 @@ export function createNgrxCollector(
     return t;
   };
 
-  const findClassic = (ng: NgrxDebugNg, envs: Map<AnyRecord, string>, rootInjector: unknown) => {
+  const findClassic = (ng: NgrxDebugNg<H>, envs: Map<AnyRecord, string>, rootInjector: unknown) => {
     const want: Record<string, (v: AnyRecord) => boolean> = {
       Store: (v) => typeof v['dispatch'] === 'function' && typeof v['select'] === 'function',
       ScannedActionsSubject: (v) => typeof v['subscribe'] === 'function',
@@ -583,10 +586,10 @@ export function createNgrxCollector(
   };
 
   // `Dispatcher` (from `@ngrx/signals/events`) is `providedIn: 'platform'`, resolved
-  // through the injector the same way `findClassic` resolves `Store`, but tracked
-  // separately: an app can use the events plugin without @ngrx/store's classic Store.
+  // from the environment injector that holds it, and tracked apart from `findClassic`:
+  // an app can use the events plugin without @ngrx/store's classic Store.
   const findDispatcher = (
-    ng: NgrxDebugNg,
+    ng: NgrxDebugNg<H>,
     envs: Map<AnyRecord, string>,
     rootInjector: unknown,
   ): AnyRecord | null => {
@@ -597,8 +600,11 @@ export function createNgrxCollector(
       for (const p of read(() => ng.ɵgetInjectorProviders?.(env) ?? [], [])) tokens.add(p.token);
       for (const token of tokens) {
         if (stripped(token) !== 'Dispatcher') continue;
-        const from = (rootInjector ?? env) as AnyRecord;
-        const value = read(() => from['get'](token, null), null) as AnyRecord | null;
+        const value = (read(() => env['get'](token, null), null) ??
+          read(
+            () => (rootInjector as AnyRecord | null)?.['get'](token, null),
+            null,
+          )) as AnyRecord | null;
         if (value && typeof value === 'object' && typeof value['dispatch'] === 'function') {
           return value;
         }
@@ -648,6 +654,7 @@ export function createNgrxCollector(
     const original = read(() => d['dispatch'], undefined) as
       ((...args: unknown[]) => unknown) | undefined;
     if (typeof original !== 'function') return undefined;
+    const own = Object.prototype.hasOwnProperty.call(d, 'dispatch');
     d['dispatch'] = function (this: unknown, ...args: unknown[]) {
       const before = new Set<Tracked>();
       for (const t of tracked.values()) if (t.pendingBefore) before.add(t);
@@ -681,7 +688,11 @@ export function createNgrxCollector(
       }
       return result;
     };
-    return () => read(() => (d['dispatch'] = original), undefined);
+    return () =>
+      read(() => {
+        if (own) d['dispatch'] = original;
+        else delete d['dispatch'];
+      }, undefined);
   };
 
   const attachDispatcher = (d: AnyRecord): (() => void) => {
@@ -905,13 +916,13 @@ export function createNgrxCollector(
   };
 
   let discovered = false;
-  const discover = (ng: NgrxDebugNg) => {
+  const discover = (ng: NgrxDebugNg<H>) => {
     const found = new Set<object>();
     const envs = new Map<AnyRecord, string>();
-    const elements = componentElements(ng, doc);
+    const elements = componentElements(ng, tree);
     let rootInjector: unknown = null;
 
-    const perElement: { el: Element; injector: unknown; component: AnyRecord | null }[] = [];
+    const perElement: { el: H; injector: unknown; component: AnyRecord | null }[] = [];
     for (const el of elements) {
       const injector = read(() => ng.getInjector!(el), null);
       if (!injector) continue;
@@ -941,7 +952,7 @@ export function createNgrxCollector(
     }
 
     for (const { el, injector, component } of perElement) {
-      const owner = component ? className(component.constructor) : el.tagName.toLowerCase();
+      const owner = component ? className(component.constructor) : tree.tag(el);
       for (const p of read(() => ng.ɵgetInjectorProviders?.(injector) ?? [], [])) {
         const tname = stripped(p.token);
         if (/^SignalStore\d*$/.test(tname)) {
@@ -967,7 +978,12 @@ export function createNgrxCollector(
             !attachedDispatchers.has(value)
           ) {
             attachedDispatchers.add(value);
-            componentDispatcherUndos.set(el, attachDispatcher(value));
+            const detach = attachDispatcher(value);
+            componentDispatcherUndos.get(el)?.();
+            componentDispatcherUndos.set(el, () => {
+              detach();
+              attachedDispatchers.delete(value);
+            });
           }
         }
       }
@@ -1008,8 +1024,9 @@ export function createNgrxCollector(
     // scan, no new work) and stops as soon as the Dispatcher appears.
     if (!dispatcher) {
       const found = findDispatcher(ng, envs, rootInjector);
-      if (found) {
+      if (found && !attachedDispatchers.has(found)) {
         dispatcher = found;
+        attachedDispatchers.add(found);
         dispatcherUndo = attachDispatcher(found);
       }
     }
@@ -1257,7 +1274,7 @@ export function createNgrxCollector(
       finish(t, `${label} (watchState listeners not notified)`, undefined, before);
       return {
         ok: true,
-        message: `Restored the state after change #${request.seq}. Register watchState via registerNgrxSignals({ patchState, watchState }) to have watchState listeners run on restore.`,
+        message: `Restored the state after change #${request.seq}. Call registerNgrxSignals({ patchState, watchState }) so watchState listeners run on restore.`,
       };
     }
     const c = classic;

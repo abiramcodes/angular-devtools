@@ -49,7 +49,7 @@ Open an entry to see its arguments, or the action and its **Origin** for the cla
 
 ### Events
 
-When a page dispatches at least one `@ngrx/signals/events` event, an **Events** section lists them: the event type, its payload and the time. This section covers every store on the page, not just the selected one. Open an event to see its full payload in the same detail panel as the change log.
+When a page dispatches at least one `@ngrx/signals/events` event, an **Events** section lists them: the event type, its payload and the time. This section covers every store on the page, not only the selected one. Open an event to see its full payload in the same detail panel as the change log.
 
 ### Dispatch an action
 
@@ -79,15 +79,22 @@ Filter by kind with the chips.
 
 ### How changes are recorded
 
-The overlay wraps the state signals of each signal store and the store's methods. A method call's synchronous duration goes into the method's rolling aggregate (the avg/last figures in the **Methods** panel). That duration covers the synchronous call only, not any async work a `rxMethod` or an effect starts from it. Nested method calls fold into the outer one and do not get their own duration.
+The overlay wraps the state signals of each signal store and the store's methods. Every method call, nested or not, adds its duration to that method's average and last figures in **Methods**. The duration covers the synchronous call only, not any async work an `rxMethod` or an effect starts from it.
 
-When `watchState` is registered (see [Restore NgRx signal state](../guides/ngrx-signals-restore.md)), the overlay records one change entry per `patchState` call, including several calls in the same tick, each labeled with the enclosing method name when one is active. Each entry carries a `durationMs`: the elapsed time from the method call's start to that specific patch, so earlier patches in a batch show a shorter duration than the final one. Without `watchState`, writes outside a method are batched per microtask into one `patchState` entry, and a method call that changes state produces one entry carrying its total duration.
+How the log groups changes depends on whether `watchState` is registered (see [Restore NgRx signal state](../guides/ngrx-signals-restore.md)):
+
+| Setup                | Change log entries                                                                                                                                                                                                                                                            |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| With `watchState`    | One entry per `patchState` call, including several in the same tick, labeled with the method that is running. Each entry carries a duration: the time from the start of that method to that patch, so an earlier patch in a method shows a shorter duration than a later one. |
+| Without `watchState` | One entry per outermost method call that changes state, with the duration of the whole call. Writes outside a method are grouped per microtask into one `patchState` entry.                                                                                                   |
+
+A `patchState` outside a method and a `Restore #N` entry carry no duration. A method call that changes nothing still gets an entry, at most once per second.
 
 For the classic Store, the overlay listens to the dispatched actions. It also wraps `dispatch` and `next` on the Store to tag each action with its origin, and puts them back when the page disconnects.
 
 The overlay diffs a copy of the state that keeps the first 100 items of each array or object. When a change is past that limit, it compares the live state instead, so the entry still lists the change.
 
-For `@ngrx/signals/events`, the overlay finds the platform-wide `Dispatcher` and records every event it dispatches. When a `withReducer()` case changes a tracked store's state in response, that change's log entry is tagged with the event that caused it.
+For `@ngrx/signals/events`, the overlay finds the platform `Dispatcher` and every component-scoped one from `provideDispatcher()`, and records each event once, from the dispatcher that handles it. When a store's state changes while an event is being dispatched, that change's log entry is tagged with the event.
 
 ### Development builds
 
@@ -193,11 +200,11 @@ The log keeps the last 200 entries. Set the count with [`limits.changeLog`](../g
 
 `@ngrx/signals` has no built-in concept of a selected entity. The tab looks for a `selectedId` state key (or `<collection>SelectedId` for a named collection) next to a `withEntities()` collection, and shows it as **Selected** when it holds a value. A `null` or missing key shows no **Selected** row.
 
-### Events: platform and component-scoped `Dispatcher`s, only synchronous reducers are tagged
+### Events come from every `Dispatcher`, and only synchronous changes are tagged
 
-The overlay subscribes to the platform `Dispatcher` from `@ngrx/signals/events`. It also picks up component-scoped dispatchers created with `provideDispatcher()`: when a component's element injector provides a `Dispatcher`, the overlay attaches to it as well and releases it when the component is destroyed.
+The overlay listens to the platform `Dispatcher` from `@ngrx/signals/events`. It also listens to a `Dispatcher` that a component provides with `provideDispatcher()`, and stops when that component is destroyed. An event sent with `scope: 'parent'` or `scope: 'global'` is logged once, by the dispatcher that handles it.
 
-Each entry is tagged with its originating event (`caused by`) only when the `withReducer()` case ran synchronously inside the `Dispatcher.dispatch()` call. A `withEventHandlers` tap or an `rxMethod` that reacts to the same event later still shows up as a plain state change. The devtools cannot tell after the fact which event caused it.
+A change gets a **Caused by event** tag only when it happens during the `dispatch()` call, like a `withReducer()` case or an event handler that patches state right away. A change made later, after an HTTP call or a timer, shows as a plain state change. The tag names the event, not which case reducer handled it.
 
 ### `signalMethod` vs `rxMethod`
 
@@ -227,7 +234,7 @@ Both wrap the returned callable with a `.destroy` function, so the overlay canno
 
 <ngmd-card-grid columns="2">
   <ngmd-card icon="wrench" title="Restore NgRx signal state" link="/guides/ngrx-signals-restore" cta="Guide">
-    Register <code>patchState</code> so restore notifies <code>watchState</code>.
+    Register <code>patchState</code> and <code>watchState</code> so restore notifies listeners and each patch gets its own entry.
   </ngmd-card>
   <ngmd-card icon="zap" title="Signals" link="/inspectors/signals" cta="Open">
     The signal graph of the components that read the store.

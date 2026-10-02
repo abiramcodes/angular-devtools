@@ -34,7 +34,8 @@ import {
   storedInstrumented,
   type PreloadRecord,
 } from './router-actions.ts';
-import { createSignalHistory, type RawSignalNode } from './signal-history.ts';
+import { createSignalHistory, installSignalWriteHook } from './signal-history.ts';
+export { installSignalWriteHook } from './signal-history.ts';
 import { collectComponentTree, componentHostOf } from './component-tree.ts';
 import { startComponentPick } from './component-pick.ts';
 import { createDeferTracker } from './defer-blocks.ts';
@@ -686,42 +687,6 @@ function findAngularElements(): Element[] {
     Array.from(el.attributes).some((a) => a.name.startsWith('_nghost')),
   );
   return Array.from(new Set([...versionEls, ...hostEls]));
-}
-
-// --- Signal Graph collection using Angular's debug API ---
-type SignalSetHook = ((node: RawSignalNode) => void) | null;
-
-export async function installSignalWriteHook(
-  onWrite: (node: RawSignalNode) => void,
-  load: () => Promise<{ setPostSignalSetFn: (fn: SignalSetHook) => SignalSetHook }> = () =>
-    import('@angular/core/primitives/signals') as never,
-): Promise<(() => void) | null> {
-  let setHook: (fn: SignalSetHook) => SignalSetHook;
-  try {
-    ({ setPostSignalSetFn: setHook } = await load());
-  } catch {
-    // Without the hook, history falls back to poll samples only.
-    return null;
-  }
-  if (typeof setHook !== 'function') return null;
-  let prev: SignalSetHook = null;
-  let active = true;
-  const hook = (node: RawSignalNode) => {
-    prev?.(node);
-    if (!active) return;
-    try {
-      onWrite(node);
-    } catch {
-      return;
-    }
-  };
-  prev = setHook(hook);
-  return () => {
-    active = false;
-    const current = setHook(prev);
-    // Someone chained after us; keep theirs, our hook now just forwards.
-    if (current !== hook) setHook(current);
-  };
 }
 
 function read<T>(fn: () => T, fallback: T): T {

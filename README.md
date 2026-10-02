@@ -8,7 +8,7 @@ Inspect Angular component trees, signals, dependency injection, routes, forms, p
 npm install @santoshyadavdev/ng-devtools devframe
 ```
 
-Then follow the [installation guide](./apps/docs/src/content/getting-started/installation.md) for your setup: Angular CLI with Express, Vite and Analog, or the standalone CLI. For a coding agent, run `npx @santoshyadavdev/ng-devtools mcp`.
+Then follow the [installation guide](./apps/docs/src/content/getting-started/installation.md) for your setup: Angular CLI with Express, Vite and Analog, the standalone CLI, or [Angular Native](./apps/docs/src/content/getting-started/angular-native.md). For a coding agent, run `npx @santoshyadavdev/ng-devtools mcp`.
 
 ## Documentation
 
@@ -39,15 +39,31 @@ Join the conversation, ask questions, and share feedback on [Discord](https://di
 
 ## Sponsors
 
-If Angular DevTools helps your work, please consider [sponsoring the project on GitHub](https://github.com/sponsors/santoshyadavdev). Your support keeps development going.
+Angular DevTools is free and open source. If it helps your work, please consider sponsoring it. Your support keeps development going.
 
-Thanks to the current sponsors:
+<p>
+  <a href="https://github.com/sponsors/santoshyadavdev"><img src="https://img.shields.io/badge/Sponsor-%E2%9D%A4-db61a2?logo=githubsponsors&logoColor=white" alt="Sponsor Angular DevTools on GitHub" /></a>
+</p>
+
+### Company sponsors
+
+<!-- prettier-ignore-start -->
+<a href="https://coderabbit.ai"><img src="https://github.com/coderabbitai.png?size=120" width="120" height="120" alt="CodeRabbit" /></a>
+<!-- prettier-ignore-end -->
+
+### Individual sponsors
 
 <!-- sponsors -->
-
-<a href="https://github.com/coderabbitai"><img src="https://github.com/coderabbitai.png?size=60" width="60" height="60" alt="CodeRabbit" /></a>
-<a href="https://github.com/umairhm"><img src="https://github.com/umairhm.png?size=60" width="60" height="60" alt="umairhm" /></a>
-<a href="https://github.com/Sonichigo"><img src="https://github.com/Sonichigo.png?size=60" width="60" height="60" alt="Sonichigo" /></a>
+<!-- prettier-ignore-start -->
+<table>
+  <tbody>
+    <tr>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/umairhm"><img src="https://github.com/umairhm.png?size=100" width="80px;" alt="Umair Hafeez"/><br /><sub><b>Umair Hafeez</b></sub></a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Sonichigo"><img src="https://github.com/Sonichigo.png?size=100" width="80px;" alt="Animesh Pathak"/><br /><sub><b>Animesh Pathak</b></sub></a></td>
+    </tr>
+  </tbody>
+</table>
+<!-- prettier-ignore-end -->
 <!-- /sponsors -->
 
 ## Contributors
@@ -64,6 +80,8 @@ Thanks to everyone who has contributed:
       <td align="center" valign="top" width="14.28%"><a href="https://erkamyaman.dev"><img src="https://avatars.githubusercontent.com/u/88717125?v=4?s=100" width="100px;" alt="erKam"/><br /><sub><b>erKam</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=erkamyaman" title="Code">💻</a> <a href="#maintenance-erkamyaman" title="Maintenance">🚧</a> <a href="https://github.com/santoshyadavdev/angular-devtools/pulls?q=is%3Apr+reviewed-by%3Aerkamyaman" title="Reviewed Pull Requests">👀</a> <a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=erkamyaman" title="Documentation">📖</a> <a href="#infra-erkamyaman" title="Infrastructure (Hosting, Build-Tools, etc)">🚇</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://www.abikb.xyz/"><img src="https://avatars.githubusercontent.com/u/131433061?v=4?s=100" width="100px;" alt="Abiram"/><br /><sub><b>Abiram</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=abiramcodes" title="Code">💻</a></td>
       <td align="center" valign="top" width="14.28%"><a href="https://kaap10.github.io/portfolio"><img src="https://avatars.githubusercontent.com/u/112063624?v=4?s=100" width="100px;" alt="Vardhman Gupta"/><br /><sub><b>Vardhman Gupta</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=Kaap10" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://github.com/Nicoss54"><img src="https://avatars.githubusercontent.com/u/24563545?v=4?s=100" width="100px;" alt="Nicolas Frizzarin"/><br /><sub><b>Nicolas Frizzarin</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=Nicoss54" title="Code">💻</a></td>
+      <td align="center" valign="top" width="14.28%"><a href="https://nstudio.io"><img src="https://avatars.githubusercontent.com/u/457187?v=4?s=100" width="100px;" alt="Nathan Walker"/><br /><sub><b>Nathan Walker</b></sub></a><br /><a href="https://github.com/santoshyadavdev/angular-devtools/commits?author=NathanWalker" title="Code">💻</a></td>
     </tr>
   </tbody>
 </table>

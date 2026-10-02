@@ -44,7 +44,7 @@ function storeSummaryLine(page: NgrxPageRecord, store: NgrxSignalStoreInfo): str
         .join(', ')}`,
     );
   }
-  return `- ${bits.join(' — ')} on page ${code(page.pageId)}`;
+  return `- ${bits.join(', ')} on page ${code(page.pageId)}`;
 }
 
 function entitiesDetail(entities: NonNullable<NgrxSignalStoreInfo['entities']>): string {
@@ -85,7 +85,7 @@ function storeDetail(page: NgrxPageRecord, store: NgrxSignalStoreInfo): string {
     lines.push('');
     lines.push('### Entities');
     lines.push(
-      '`withEntities()` collections found in state and computed above — this is a summary, not new data.',
+      '`withEntities()` collections found in state and computed above. This is a summary, not new data.',
     );
     lines.push(entitiesDetail(store.entities));
   }
@@ -151,7 +151,7 @@ function entryLine(entry: NgrxLogEntry, showPage?: string): string {
   const when = new Date(entry.timestamp).toISOString();
   const page = showPage ? ` on ${code(showPage)}` : '';
   if (entry.source === 'event') {
-    return `- #${entry.seq} ${when}${page}: dispatched event ${code(entry.eventType ?? entry.type)}${entry.payload !== undefined ? ` — payload: ${JSON.stringify(entry.payload)}` : ''}`;
+    return `- #${entry.seq} ${when}${page}: dispatched event ${code(entry.eventType ?? entry.type)}${entry.payload !== undefined ? `, payload: ${JSON.stringify(entry.payload)}` : ''}`;
   }
   const caused = entry.causedByEvent ? ` (caused by event ${code(entry.causedByEvent.type)})` : '';
   const restorable = entry.restorable ? '' : ' _(not restorable)_';
@@ -160,12 +160,12 @@ function entryLine(entry: NgrxLogEntry, showPage?: string): string {
     ? entry.diff
         .map(
           (d) =>
-            `${d.path} ${d.op}${'before' in d ? ` ${JSON.stringify(d.before)} →` : ''}${'after' in d ? ` ${JSON.stringify(d.after)}` : ''}`,
+            `${d.path} ${d.op}${'before' in d ? ` ${JSON.stringify(d.before)}` : ''}${'before' in d && 'after' in d ? ' →' : ''}${'after' in d ? ` ${JSON.stringify(d.after)}` : ''}`,
         )
         .join('; ')
     : 'no state change';
   const kind = entry.source === 'store' ? 'action' : 'call';
-  return `- #${entry.seq} ${when}${page}: ${kind} ${code(entry.type)}${duration} on ${code(entry.storeId)}${caused}${restorable} — ${diffText}`;
+  return `- #${entry.seq} ${when}${page}: ${kind} ${code(entry.type)}${duration} on ${code(entry.storeId)}${caused}${restorable}: ${diffText}`;
 }
 
 /**
@@ -233,7 +233,7 @@ export const INSPECT_SIGNAL_STORE_DESCRIPTION =
   'Read the live @ngrx/signals state a connected page last reported: state, computed values, withEntities() collections (a summary of state/computed already there), methods with call counts and duration (avg/last, in ms; synchronous call only, not any async work an rxMethod started), scope, where it is provided, and which components or injectors reference it. Pass `storeId` (from a previous call, or the id shown on the NgRx Store page) to inspect one store; without it, lists every store discovered so far, and the classic @ngrx/store state if present. Pass `page` when more than one tab is connected; it defaults to every page. Live data only, from what a connected browser tab last pushed, not a source scan. Empty when no page has connected or no store has been discovered yet.';
 
 export const SIGNAL_STORE_HISTORY_DESCRIPTION =
-  "The live change log for a connected page's NgRx stores, oldest first: @ngrx/signals state diffs (method calls and patchState writes, each with a per-key diff), classic @ngrx/store actions, and @ngrx/signals/events dispatched events. A method-call entry carries `durationMs` (ms): the synchronous call's own wall-clock time, not any async work it started (an rxMethod's subscription, an HTTP call). When watchState is registered via registerNgrxSignals, each patchState call within a method gets its own entry with a `durationMs` equal to the elapsed time from the method's start to that specific patch — earlier patches in a batch show a shorter value than later ones. A patchState write outside a method has no `durationMs`. A signal-store entry carries `causedByEvent` when a `withReducer()` case reducer patched it synchronously while handling that event (best effort: which reducer matched cannot be recovered; only `withReducer()` taps that run synchronously inside `Dispatcher.dispatch()` get tagged; a `withEventHandlers` or an `rxMethod` that reacts to the same event later does not). Pass `storeId` to see one store's history only (an event with no store effect only shows in the unfiltered log). Pass `since` (a `seq` from a previous call) to get only what changed after it, for polling; requires `page` when more than one page is connected. Live data only. Empty when nothing has changed, dispatched or been discovered yet.";
+  "The live change log for a connected page's NgRx stores, oldest first: @ngrx/signals state diffs (method calls and patchState writes, each with a per-key diff), classic @ngrx/store actions, and @ngrx/signals/events dispatched events. A method-call entry carries `durationMs` (ms): the synchronous call's own wall-clock time, not any async work it started (an rxMethod's subscription, an HTTP call). When watchState is registered via registerNgrxSignals, each patchState call within a method gets its own entry with a `durationMs` equal to the elapsed time from the method's start to that specific patch, so earlier patches in a batch show a shorter value than later ones. A patchState write outside a method has no `durationMs`. A signal-store entry carries `causedByEvent` when the change happened while that event was being dispatched, like a `withReducer()` case or an event handler that patches state right away (best effort: which case reducer matched cannot be recovered, and a change made later, after an HTTP call or a timer, is not tagged). Pass `storeId` to see one store's history only (an event with no store effect only shows in the unfiltered log). Pass `since` (a `seq` from a previous call) to get only what changed after it, for polling; requires `page` when more than one page is connected. Live data only. Empty when nothing has changed, dispatched or been discovered yet.";
 
 /**
  * Prefixes an untrusted-data preamble to the live-tool text and caps the body

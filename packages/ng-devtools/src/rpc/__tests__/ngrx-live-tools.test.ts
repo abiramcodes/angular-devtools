@@ -199,6 +199,25 @@ describe('signal-store-history', () => {
     expect(text).toMatch(/#3\b/);
   });
 
+  it('puts an arrow only between a before and an after value', () => {
+    const pages = pagesWith(
+      [store()],
+      [
+        logEntry({
+          seq: 1,
+          diff: [
+            { path: 'ids[0]', op: 'remove', before: 'a' },
+            { path: 'ids[1]', op: 'add', after: 'b' },
+            { path: 'count', op: 'change', before: 0, after: 1 },
+          ],
+        }),
+      ],
+    );
+    expect(signalStoreHistoryText(pages)).toContain(
+      ': ids[0] remove "a"; ids[1] add "b"; count change 0 → 1',
+    );
+  });
+
   it('shows duration on a method-call entry when present, and omits it when absent', () => {
     const pages = pagesWith(
       [store()],
@@ -224,7 +243,9 @@ describe('signal-store-history', () => {
   it('exposes a description that explains the change log and tagged events', () => {
     expect(SIGNAL_STORE_HISTORY_DESCRIPTION).toMatch(/change log/i);
     expect(SIGNAL_STORE_HISTORY_DESCRIPTION).toMatch(/withReducer/);
-    expect(SIGNAL_STORE_HISTORY_DESCRIPTION).toMatch(/synchronously/);
+    expect(SIGNAL_STORE_HISTORY_DESCRIPTION).toMatch(
+      /from the method.s start to that specific patch/,
+    );
   });
 
   it('keeps the newest rows when the log exceeds the budget and notes the dropped count', () => {

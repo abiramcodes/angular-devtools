@@ -85,11 +85,10 @@ export interface NgrxLogEntry {
   diff: NgrxDiffEntry[];
   restorable: boolean;
   /**
-   * Set only for an entry produced by a wrapped `signalStore`/`signalState` method call
-   * (not a plain `patchState`/signal-write entry, which has no meaningful "call
-   * duration"). This is how long the synchronous call took to *return* — for an
-   * `rxMethod`/effect-style method that just starts a subscription or an HTTP call, it is
-   * not how long that async work takes.
+   * Set only for an entry produced inside a wrapped `signalStore` method call, never for
+   * a plain `patchState` write or a restore. Without `watchState` registered it is how
+   * long the synchronous call took to return; with it, the time from the start of the
+   * method to that patch. Neither covers async work the method started.
    */
   durationMs?: number;
   /** `source: 'event'` only: the dispatched `@ngrx/signals/events` event's type and payload. */

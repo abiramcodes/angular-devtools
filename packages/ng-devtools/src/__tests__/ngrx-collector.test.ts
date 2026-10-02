@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { signal } from '@angular/core';
 import { describe, expect, it, vi } from 'vitest';
+import { domTree } from '../host-tree.ts';
 import { createNgrxCollector } from '../ngrx-collector.ts';
 import { attachNgrx } from '../ngrx-overlay.ts';
 import { diff, serialize, type NgrxPageReport } from '../ngrx-shared.ts';
@@ -78,7 +79,7 @@ function setup(maxLog?: number) {
     ɵgetInjectorProviders: () => [],
   };
   const onChange = vi.fn();
-  const collector = createNgrxCollector(() => ng as any, onChange, document, maxLog);
+  const collector = createNgrxCollector(() => ng as any, onChange, domTree(), maxLog);
   return { store, app, rootEnv, collector, onChange, ng };
 }
 
@@ -346,7 +347,7 @@ function collectorForRoot(
   return createNgrxCollector(
     () => ng as any,
     () => {},
-    document,
+    domTree(),
   );
 }
 
@@ -735,6 +736,19 @@ describe('ngrx collector events', () => {
     expect(signalEntry?.causedByEvent).toBeUndefined();
   });
 
+  it('redacts secret-looking keys in event payloads', () => {
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    const collector = collectorForRoot(
+      new Map([[dispatcherToken, { value: undefined }]]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+    dispatcher.dispatch({ type: 'login', payload: { user: 'ann', password: 'hunter2' } });
+    const [entry] = collector.logSince(0);
+    expect(entry.payload).toEqual({ user: 'ann', password: '[redacted]' });
+  });
+
   it('omits payload on events dispatched without one', () => {
     const dispatcher = new FakeDispatcher();
     const dispatcherToken = class Dispatcher {};
@@ -832,6 +846,33 @@ describe('ngrx collector events', () => {
     const seqBefore = collector.logSince(0).length;
     scopedDispatcher.reducerEvents.events$.next({ type: 'after-destroy' });
     expect(collector.logSince(0)).toHaveLength(seqBefore);
+  });
+});
+
+describe('ngrx collector dispatcher lookup', () => {
+  it('attaches a Dispatcher once when the root lookup finds the component-scoped one', () => {
+    document.body.innerHTML = '<app-root ng-version="22"></app-root>';
+    const root = document.querySelector('app-root')!;
+    const scoped = new FakeDispatcher();
+    const token = class Dispatcher {};
+    const rootEnv = { scopes: new Set(['root']), records: new Map([[token, { value: scoped }]]) };
+    const node = { get: (t: unknown) => (t === token ? scoped : null) };
+    const ng = {
+      getInjector: (el: Element) => (el === root ? node : null),
+      getComponent: (el: Element) => (el === root ? {} : null),
+      ɵgetInjectorMetadata: (inj: unknown) =>
+        inj === rootEnv ? { type: 'environment', source: 'R3Injector' } : { type: 'element' },
+      ɵgetInjectorResolutionPath: () => [node, rootEnv],
+      ɵgetInjectorProviders: (inj: unknown) => (inj === node ? [{ token }] : []),
+    };
+    const collector = createNgrxCollector(
+      () => ng as any,
+      () => {},
+    );
+    collector.collect();
+    collector.collect();
+    scoped.dispatch({ type: 'once' });
+    expect(collector.logSince(0).map((e) => e.type)).toEqual(['once']);
   });
 });
 
@@ -1384,12 +1425,8 @@ describe('ngrx collector with @ngrx/signals', () => {
   });
 
   it('notifies watchState listeners on restore once the app registers patchState', async () => {
-    // Clear any registration a prior `attachNgrx(...)` test left behind so
-    // the collector sees `registeredWatchState()` as `null` here. If the
-    // overlay's auto-imported `watchState` were still in place, the stub
-    // injector in `realCollector` would make `watchState(...)` throw after
-    // our watcher was already added to STATE_WATCHERS, leaking a double-log
-    // of every subsequent patchState.
+    // Clear any registration an earlier test left behind, so only
+    // `patchState` is registered here.
     delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
     await import('@angular/compiler');
     const { Injector } = await import('@angular/core');
@@ -1629,6 +1666,80 @@ describe('ngrx collector with @ngrx/signals', () => {
     } finally {
       delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
     }
+  });
+
+  it('logs a withEventHandlers chain once per event, in dispatch order', async () => {
+    await import('@angular/compiler');
+    const { Injector, inject } = await import('@angular/core');
+    const { map, tap } = await import('rxjs');
+    const { signalStore, withState, patchState, watchState, type } = await import('@ngrx/signals');
+    const { Dispatcher, Events, ReducerEvents, eventGroup, on, withReducer, withEventHandlers } =
+      await import('@ngrx/signals/events');
+    const { registerNgrxSignals } = await import('../ngrx-register.ts');
+
+    const chainEvents = eventGroup({
+      source: 'Chain',
+      events: { a: type<void>(), b: type<number>() },
+    });
+    const Store = signalStore(
+      withState({ count: 0, marked: false }),
+      withReducer(on(chainEvents.b, (event, state) => ({ count: state.count + event.payload }))),
+      withEventHandlers((store, events = inject(Events)) => ({
+        mark$: events.on(chainEvents.a).pipe(tap(() => patchState(store, { marked: true }))),
+        chain$: events.on(chainEvents.a).pipe(map(() => chainEvents.b(2))),
+      })),
+    );
+    const injector = Injector.create({ providers: [Store, Dispatcher, Events, ReducerEvents] });
+    const store = injector.get(Store);
+    const dispatcher = injector.get(Dispatcher);
+    registerNgrxSignals({ patchState, watchState });
+    try {
+      const collector = realCollectorWithInjector(store, injector);
+      collector.collect();
+      dispatcher.dispatch(chainEvents.a());
+      const log = collector.logSince(0);
+      expect(log.filter((e) => e.source === 'event').map((e) => e.type)).toEqual([
+        '[Chain] a',
+        '[Chain] b',
+      ]);
+      const changes = log.filter((e) => e.source === 'signal-store');
+      expect(changes.map((e) => [e.diff[0].path, e.causedByEvent?.type])).toEqual([
+        ['marked', '[Chain] a'],
+        ['count', '[Chain] b'],
+      ]);
+      expect(store.count()).toBe(2);
+    } finally {
+      delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
+    }
+  });
+
+  it('logs events from a component-scoped Dispatcher and lets it go with the component', async () => {
+    const TestBed = await testBed();
+    const { Component, inject } = await import('@angular/core');
+    const { Dispatcher, event, provideDispatcher } = await import('@ngrx/signals/events');
+    const ping = event('[Panel] Ping');
+    class Panel {
+      dispatcher = inject(Dispatcher);
+    }
+    Component({ selector: 'app-panel', template: '', providers: [provideDispatcher()] })(Panel);
+    const fixture = TestBed.createComponent(Panel);
+    document.body.replaceChildren(fixture.nativeElement);
+    const collector = createNgrxCollector(
+      () => (globalThis as { ng?: any }).ng,
+      () => {},
+    );
+    collector.collect();
+    const scoped = fixture.componentInstance.dispatcher;
+    scoped.dispatch(ping());
+    expect(collector.logSince(0).map((e) => e.type)).toEqual(['[Panel] Ping']);
+
+    fixture.destroy();
+    fixture.nativeElement.remove();
+    collector.collect();
+    expect(Object.prototype.hasOwnProperty.call(scoped, 'dispatch')).toBe(false);
+    scoped.dispatch(ping());
+    expect(collector.logSince(0)).toHaveLength(1);
+    collector.stop();
   });
 
   it('does not add reactive dependencies when a method runs inside a computed', async () => {

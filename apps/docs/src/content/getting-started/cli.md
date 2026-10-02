@@ -84,11 +84,12 @@ The default command starts a local server with the devtools UI. `dev` is optiona
 npx @santoshyadavdev/ng-devtools dev --port 9999 --open
 ```
 
-When the server is ready, it prints the version, the panel URL and the MCP endpoint:
+When the server is ready, it prints the version, the panel URL, the panel URL for [Angular Native](./angular-native.md) apps and the MCP endpoint:
 
 ```text
-  ng-devtools v0.0.5
+  ng-devtools v0.0.6
   Panel: http://localhost:9999/
+  Angular Native apps: http://localhost:9999/?view=angular-native
   MCP:   http://localhost:9999/__mcp
 ```
 
@@ -110,7 +111,7 @@ If you pass no `--port` and port 9999 is taken, it also prints the port it uses 
 
 ### What it shows
 
-No page is connected to the CLI server. The tabs show what your source declares:
+When no app is connected, the tabs show what your source declares. An [Angular Native](./angular-native.md) app connects through the **Angular Native apps** URL above and shows live data there:
 
 - [Components](../inspectors/components.md)
 - [Routes](../inspectors/router.md)

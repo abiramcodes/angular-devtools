@@ -41,7 +41,7 @@ If `page` names a tab that doesn't report that data, the tool answers `No page <
 
 ### list-pages
 
-Lists the tabs that report to the server, newest first: page id, URL, seconds since the last report, and which inspectors report. Takes no arguments. Reads: page. Use it to find the id to pass as `page`.
+Lists the tabs and [Angular Native](../getting-started/angular-native.md) apps that report to the server, newest first: page id, URL, platform (`browser` or `Angular Native`), seconds since the last report, and which inspectors report. Takes no arguments. Reads: page. Use it to find the id to pass as `page`.
 
 ### Action tools
 
@@ -162,7 +162,7 @@ With `storeId`, the full state of one store: state, computed values, `withEntiti
 
 ### signal-store-history
 
-The change log for a page's stores, oldest first: `@ngrx/signals` state diffs (method calls and `patchState` writes, each with a per-key diff), classic `@ngrx/store` actions, and `@ngrx/signals/events` dispatched events. A signal-store entry carries the event that caused it when a `withReducer()` case reducer patched the state synchronously while handling that event.
+The change log for a page's stores, oldest first: `@ngrx/signals` state diffs (method calls and `patchState` writes, each with a per-key diff), classic `@ngrx/store` actions, and `@ngrx/signals/events` dispatched events. A method-call entry carries a duration in milliseconds. With `watchState` registered, it is the time from the start of the method to that patch; without it, the time the whole call took. A signal-store entry carries the event that caused it when the change happened while that event was being dispatched.
 
 | Argument  | Required | Value                                                                                                                                                            |
 | --------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |

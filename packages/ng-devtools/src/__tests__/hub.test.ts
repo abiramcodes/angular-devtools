@@ -58,13 +58,14 @@ describe('ng-devtools hub', () => {
       ['ng-devtools:angular', '/__devframes/ng-devtools/?view=angular'],
       ['ng-devtools:ngrx', '/__devframes/ng-devtools/?view=ngrx'],
       ['ng-devtools:analog', '/__devframes/ng-devtools/?view=analog'],
+      ['ng-devtools:angular-native', '/__devframes/ng-devtools/?view=angular-native'],
       ['ng-devtools:nativescript', '/__devframes/ng-devtools/?view=nativescript'],
       ['ng-devtools:capacitor', '/__devframes/ng-devtools/?view=capacitor'],
     ]);
     expect(ours.filter((d) => d.title.endsWith('Coming Soon')).map((d) => d.id)).toEqual([
-      'ng-devtools:nativescript',
       'ng-devtools:capacitor',
     ]);
+    expect(ours.find((d) => d.id === 'ng-devtools:angular-native')?.title).toBe('Angular Native');
     expect(ours.some((d) => d.badge || d.groupId)).toBe(false);
     expect(new Set(ours.map((d) => d.frameId))).toEqual(new Set(['ng-devtools']));
     expect(docks.find((d) => d.id === 'ng-devtools')?.visibility).toBe('false');

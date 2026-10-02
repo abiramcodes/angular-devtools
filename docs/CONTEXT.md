@@ -8,6 +8,10 @@ Angular DevTools inspects a running Angular app and serves what it finds to a pa
 One browser tab running the inspected app with the overlay loaded. Several pages can report to the same server at once, and each one's data is kept apart.
 _Avoid_: tab (a tab is a view in the panel), client, window
 
+**Platform**:
+What renders a page: a browser, or Angular Native on a device or simulator. The Angular Native overlay marks its component reports with `platform: 'angular-native'`; a report without one is a browser page. The Angular Native view and `list-pages` read it.
+_Avoid_: target, runtime, device type
+
 **pageId**:
 The short id a page claims when the overlay starts, kept in `sessionStorage` so a reload keeps it, and replaced when a duplicated tab already holds it. Everything the page reports carries it, and the server expires a page's data when its reports stop.
 _Avoid_: tab id, session id, client id
@@ -19,6 +23,10 @@ _Avoid_: content script, agent, injected script
 **Collector**:
 One inspector's page-side code inside the overlay, such as `forms-collector.ts` or `pipes-collector.ts`. It reads the app through Angular's debug APIs, gives objects stable ids through a `WeakMap`, and pushes a report tagged with the `pageId`.
 _Avoid_: scraper, probe, watcher
+
+**Host tree**:
+The tree Angular rendered into, as the component, injector, signal graph and NgRx collectors walk it: roots, children, parent and a tag for each host (`HostTree` in `host-tree.ts`). In the browser it is the DOM, through `domTree()`; a platform without a DOM describes its own views.
+_Avoid_: view tree, render tree, DOM (when the code does not depend on it)
 
 **Push**:
 A report a collector sends to the server over RPC, such as `push-component-tree`. A collector sends one when something changed, and a keepalive at intervals so the server knows the page is still there. Pushes stay cheap.
@@ -37,7 +45,7 @@ The server part an app mounts: `initNgDevtoolsHub()` for Express, or the Vite pl
 _Avoid_: server (too broad), middleware, proxy
 
 **Dock**:
-The rail of entries the hub shows (Angular, NgRx, Analog, and the Coming Soon placeholders), each opening a view of the panel (`hub-docks.ts`).
+The rail of entries the hub shows (Angular, NgRx, Analog, Angular Native, and the Coming Soon placeholders), each opening a view of the panel (`hub-docks.ts`).
 _Avoid_: sidebar, menu, tab bar
 
 **Panel**:
