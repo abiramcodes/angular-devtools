@@ -36,9 +36,9 @@ export const TravelStore = signalStore(
 
 Without `registerNgrxSignals`, a restore changes the store but skips this listener. With it, the listener runs.
 
-## Register patchState
+## Register patchState and watchState
 
-Call `registerNgrxSignals({ patchState })` from `@santoshyadavdev/ng-devtools/overlay` once, after the app starts. Load both modules with dynamic imports in development only, so production bundles do not include the devtools.
+Call `registerNgrxSignals({ patchState, watchState })` from `@santoshyadavdev/ng-devtools/overlay` once, after the app starts. Load both modules with dynamic imports in development only, so production bundles do not include the devtools.
 
 ```ts group="register" name="Angular CLI" active
 // src/main.ts
@@ -54,7 +54,9 @@ bootstrapApplication(App, appConfig)
         .then(() =>
           Promise.all([import('@santoshyadavdev/ng-devtools/overlay'), import('@ngrx/signals')]),
         )
-        .then(([devtools, {patchState}]) => devtools.registerNgrxSignals({patchState}));
+        .then(([devtools, {patchState, watchState}]) =>
+          devtools.registerNgrxSignals({patchState, watchState}),
+        );
     }
     return undefined;
   })
@@ -69,16 +71,18 @@ import {appConfig} from './app/app.config';
 
 bootstrapApplication(App, appConfig).then(async () => {
   if (import.meta.env.DEV) {
-    const [devtools, {patchState}] = await Promise.all([
+    const [devtools, {patchState, watchState}] = await Promise.all([
       import('@santoshyadavdev/ng-devtools/overlay'),
       import('@ngrx/signals'),
     ]);
-    devtools.registerNgrxSignals({patchState});
+    devtools.registerNgrxSignals({patchState, watchState});
   }
 });
 ```
 
-The Angular CLI version is the demo app's `src/main.ts`. It loads the overlay and registers `patchState` in the same step.
+The Angular CLI version is the demo app's `src/main.ts`. It loads the overlay and registers both functions in the same step.
+
+Registering `watchState` gives you one log entry per `patchState` call, including several calls in the same tick. Without it, the overlay batches writes per microtask into one entry.
 
 ## Restore a state
 
@@ -99,7 +103,7 @@ The Angular CLI version is the demo app's `src/main.ts`. It loads the overlay an
 Every state key of the store goes back to its value right after that change. Components that read the store update at once. The log gets a **Restore** entry.
 
 <ngmd-callout type="info" title="Without registerNgrxSignals">
-  Restore still works, but the log entry says that <code>watchState</code> listeners were not notified.
+  Restore still works. Without <code>patchState</code> registered, the log entry says that <code>watchState</code> listeners were not notified.
 </ngmd-callout>
 
 ## Limits
@@ -132,5 +136,5 @@ export const appConfig: ApplicationConfig = {
 <ngmd-pill-row>
   <ngmd-pill href="/inspectors/ngrx-store" title="NgRx Store inspector"></ngmd-pill>
   <ngmd-pill href="/getting-started/overlay" title="Browser overlay"></ngmd-pill>
-  <ngmd-pill href="/agents/resources" title="ngrx-store resource"></ngmd-pill>
+  <ngmd-pill href="/agents/tools" title="NgRx agent tools"></ngmd-pill>
 </ngmd-pill-row>

@@ -22,6 +22,13 @@ import {
   type NgrxPages,
 } from './rpc/ngrx-tools.ts';
 import {
+  INSPECT_SIGNAL_STORE_DESCRIPTION,
+  SIGNAL_STORE_HISTORY_DESCRIPTION,
+  inspectSignalStoreText,
+  signalStoreHistoryText,
+  withUntrustedPreamble,
+} from './rpc/ngrx-live-tools.ts';
+import {
   dispatchProblem,
   type NgrxRequest,
   type NgrxRequestResult,
@@ -1369,6 +1376,60 @@ const ngDevtools = defineDevframe({
         'The active route tree (params, data, guards, resolvers) and recent navigations of each connected page. Empty when no page is connected.',
       mimeType: 'application/json',
       read: () => ({ text: routerResourceText(routerState.value() as RouterState) }),
+    });
+
+    const ngrxPageProperty = {
+      type: 'string',
+      description: 'Page id, when more than one tab reports. Defaults to every page.',
+    } as const;
+
+    agent.registerTool({
+      id: 'ng-devtools:inspect-signal-store',
+      description: INSPECT_SIGNAL_STORE_DESCRIPTION,
+      safety: 'read',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          page: ngrxPageProperty,
+          storeId: {
+            type: 'string',
+            description:
+              'Store id (e.g. `ngrx-1`, as shown on the NgRx Store page or returned by a previous call). Omit for a summary of every store across the matching page(s).',
+          },
+        },
+      },
+      handler: async (args: { page?: string; storeId?: string }) => ({
+        markdown: withUntrustedPreamble(
+          inspectSignalStoreText(ngrxPages, args?.page, args?.storeId),
+        ),
+      }),
+    });
+
+    agent.registerTool({
+      id: 'ng-devtools:signal-store-history',
+      description: SIGNAL_STORE_HISTORY_DESCRIPTION,
+      safety: 'read',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          page: ngrxPageProperty,
+          storeId: {
+            type: 'string',
+            description:
+              'Store id to filter the log to. Omit to include every store, plus `@ngrx/signals/events` events with no store effect.',
+          },
+          since: {
+            type: 'number',
+            description:
+              'Only return entries whose `seq` is strictly greater than this. Pass the last `seq` from a previous call to poll.',
+          },
+        },
+      },
+      handler: async (args: { page?: string; storeId?: string; since?: number }) => ({
+        markdown: withUntrustedPreamble(
+          signalStoreHistoryText(ngrxPages, args?.page, args?.storeId, args?.since),
+        ),
+      }),
     });
 
     // Agent tools

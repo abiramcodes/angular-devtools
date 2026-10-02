@@ -38,10 +38,19 @@ export function isNgrxReport(value: unknown): value is NgrxPageReport {
   );
 }
 
+/**
+ * Matches a live `signalStore`/`signalState` to its source declaration (by
+ * state-key overlap) and returns the fields we can derive from the match.
+ * `methods` is only returned when the live store carries methods that need
+ * their kind corrected: both `rxMethod` and `signalMethod` show up at runtime
+ * as callables with a `.destroy` function, so the collector marks them all
+ * `rx: true`; here we rewrite those entries to `signalMethod: true` when the
+ * declaration says they are `signalMethod` members.
+ */
 export function nameStore(
   store: NgrxSignalStoreInfo,
   declarations: NgrxDeclaration[],
-): Pick<NgrxSignalStoreInfo, 'name' | 'declaredIn'> {
+): Partial<Pick<NgrxSignalStoreInfo, 'name' | 'declaredIn' | 'methods'>> {
   const keys = new Set(store.stateKeys);
   let best: { decl: NgrxDeclaration; score: number } | null = null;
   for (const decl of declarations) {
@@ -53,7 +62,23 @@ export function nameStore(
     const score = (state.length === keys.size ? 1000 : 0) + state.length * 10 + extra;
     if (!best || score > best.score) best = { decl, score };
   }
-  return best ? { name: best.decl.name, declaredIn: best.decl.file } : {};
+  if (!best) return {};
+  const signalMethods = new Set(best.decl.members?.signalMethods ?? []);
+  const needsRelabel =
+    signalMethods.size > 0 && store.methods.some((m) => signalMethods.has(m.name));
+  return {
+    name: best.decl.name,
+    declaredIn: best.decl.file,
+    ...(needsRelabel
+      ? {
+          methods: store.methods.map((m) => {
+            if (!signalMethods.has(m.name)) return m;
+            const { rx: _rx, ...rest } = m;
+            return { ...rest, signalMethod: true };
+          }),
+        }
+      : {}),
+  };
 }
 
 export function mergeNgrxReport(

@@ -1,3 +1,5 @@
+import { isHttpRuleStatus } from './config.ts';
+
 export type HttpSide = 'client' | 'server';
 
 export interface HttpRule {
@@ -182,13 +184,7 @@ export function sanitizeRules(input: unknown): HttpRule[] {
     const pattern = str(r.pattern, 500)?.trim();
     if (!pattern) continue;
     const target = r.target === 'client' || r.target === 'server' ? r.target : 'both';
-    const status =
-      typeof r.status === 'number' &&
-      Number.isInteger(r.status) &&
-      r.status >= 100 &&
-      r.status <= 599
-        ? r.status
-        : undefined;
+    const status = isHttpRuleStatus(r.status) ? r.status : undefined;
     const delayMs =
       typeof r.delayMs === 'number' && Number.isFinite(r.delayMs)
         ? Math.min(Math.max(Math.round(r.delayMs), 0), MAX_DELAY_MS)

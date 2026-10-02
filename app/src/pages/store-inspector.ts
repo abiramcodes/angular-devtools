@@ -1,3 +1,4 @@
+import { NgTemplateOutlet } from '@angular/common';
 import {
   afterRenderEffect,
   Component,
@@ -39,6 +40,7 @@ const KIND_COLORS: Record<string, string> = {
   'signal-state': '#22d3ee',
   'signal-method': '#fb7185',
   store: '#a78bfa',
+  event: 'var(--warn)',
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -47,6 +49,7 @@ const KIND_LABELS: Record<string, string> = {
   'signal-method': 'signalMethod',
   'store-setup': 'store setup',
   store: '@ngrx/store',
+  event: 'event',
 };
 
 const ORIGIN_TEXT: Record<NgrxActionOrigin, string> = {
@@ -85,7 +88,7 @@ const CLASSIC_KINDS = new Set([
 
 @Component({
   selector: 'app-store-inspector',
-  imports: [LimitNote, Select],
+  imports: [LimitNote, Select, NgTemplateOutlet],
   template: `
     <div class="toolbar">
       <input
@@ -263,11 +266,14 @@ const CLASSIC_KINDS = new Set([
                         @for (method of info.methods; track method.name) {
                           <li class="chip mono">
                             {{ method.name }}
-                            @if (method.rx) {
+                            @if (method.signalMethod) {
+                              <span class="tag">signalMethod</span>
+                            } @else if (method.rx) {
                               <span class="tag">rxMethod</span>
                             }
                             <span class="calls"
-                              >{{ method.calls }} {{ method.calls === 1 ? 'call' : 'calls' }}</span
+                              >{{ method.calls }} {{ method.calls === 1 ? 'call' : 'calls'
+                              }}{{ methodDuration(method) }}</span
                             >
                           </li>
                         }
@@ -276,6 +282,53 @@ const CLASSIC_KINDS = new Set([
                       <p class="muted">No methods.</p>
                     }
                   </section>
+                  @if (info.entities?.length) {
+                    <section class="fact" aria-labelledby="ngrx-entities-heading">
+                      <h4 id="ngrx-entities-heading">Entities</h4>
+                      <div class="entities">
+                        @for (col of info.entities!; track col.idsKey) {
+                          <div class="entity-group">
+                            <div class="entity-head">
+                              <span class="chip mono">{{ col.collection ?? 'entities' }}</span>
+                              <span class="entity-count"
+                                >{{ col.count }} {{ col.count === 1 ? 'entity' : 'entities' }}</span
+                              >
+                            </div>
+                            <ul
+                              class="chips entity-ids"
+                              [attr.aria-label]="(col.collection ?? 'entities') + ' ids'"
+                            >
+                              @for (id of entityIds(col.ids); track id) {
+                                <li class="chip mono">{{ id }}</li>
+                              }
+                              @if (col.count > 30) {
+                                <li
+                                  class="chip more"
+                                  [title]="entityOverflowTitle(col.ids, col.count)"
+                                >
+                                  +{{ col.count - 30 }} more
+                                </li>
+                              }
+                            </ul>
+                            @if (col.selectedId !== undefined) {
+                              <dl class="kv">
+                                <dt>Selected</dt>
+                                <dd>
+                                  @if (col.selected !== undefined) {
+                                    <code [title]="prettyText(col.selected)">{{
+                                      shortText(col.selected)
+                                    }}</code>
+                                  } @else {
+                                    <span class="muted">None selected</span>
+                                  }
+                                </dd>
+                              </dl>
+                            }
+                          </div>
+                        }
+                      </div>
+                    </section>
+                  }
                 }
               </div>
 
@@ -297,12 +350,24 @@ const CLASSIC_KINDS = new Set([
                         <button
                           type="button"
                           class="log-item"
-                          [class.selected]="entry.seq === selectedSeq()"
-                          [attr.aria-pressed]="entry.seq === selectedSeq()"
-                          (click)="selectEntry(entry.seq)"
+                          [class.selected]="entry.seq === selectedChangeSeq()"
+                          [attr.aria-pressed]="entry.seq === selectedChangeSeq()"
+                          [attr.aria-controls]="
+                            entry.seq === selectedChangeSeq() ? 'ngrx-change-detail' : null
+                          "
+                          (click)="selectChange(entry.seq)"
                         >
                           <span class="seq">#{{ entry.seq }}</span>
-                          <span class="log-type" [title]="entry.type">{{ entry.type }}</span>
+                          <span class="log-type-row">
+                            <span class="log-type" [title]="entry.type">{{ entry.type }}</span>
+                            @if (entry.causedByEvent; as caused) {
+                              <span
+                                class="tag"
+                                [title]="'Caused by ' + kindLabel('event') + ': ' + caused.type"
+                                >{{ caused.type }}</span
+                              >
+                            }
+                          </span>
                           <span class="log-meta">
                             @if (entry.origin) {
                               <span class="tag">{{ entry.origin }}</span>
@@ -314,8 +379,11 @@ const CLASSIC_KINDS = new Set([
                                   (entry.diff.length === 1 ? ' change' : ' changes')
                             }}
                             ·
-                            {{ formatTime(entry.timestamp) }}</span
-                          >
+                            {{ formatTime(entry.timestamp) }}
+                            @if (entry.durationMs !== undefined) {
+                              · {{ formatDuration(entry.durationMs) }}
+                            }
+                          </span>
                         </button>
                       </li>
                     } @empty {
@@ -332,145 +400,17 @@ const CLASSIC_KINDS = new Set([
                     }
                   </ul>
 
-                  @if (entry(); as selected) {
-                    <section class="entry" aria-labelledby="ngrx-entry-heading">
-                      <h5 id="ngrx-entry-heading">#{{ selected.seq }} {{ selected.type }}</h5>
-                      <dl class="kv">
-                        <dt>Time</dt>
-                        <dd>{{ formatTime(selected.timestamp) }}</dd>
-                        @if (selected.origin) {
-                          <dt>Origin</dt>
-                          <dd>{{ originText(selected.origin) }}</dd>
-                        }
-                        @if (selected.action !== undefined) {
-                          <dt>Action</dt>
-                          <dd>
-                            <pre class="code">{{ prettyText(selected.action) }}</pre>
-                          </dd>
-                        }
-                        @if (selected.args?.length) {
-                          <dt>Arguments</dt>
-                          <dd>
-                            <pre class="code">{{ prettyText(selected.args) }}</pre>
-                          </dd>
-                        }
-                      </dl>
-                      <h6 class="sub">State diff</h6>
-                      @if (selected.diff.length) {
-                        <ul class="diff">
-                          @for (change of selected.diff; track change.path) {
-                            <li [class]="'diff-row ' + change.op">
-                              <span class="op">{{ opLabel(change.op) }}</span>
-                              <code class="path">{{ change.path }}</code>
-                              <span class="values">
-                                @if (change.op !== 'add') {
-                                  <code class="before">{{ shortText(change.before) }}</code>
-                                }
-                                @if (change.op === 'change') {
-                                  <span class="arrow" aria-hidden="true">→</span
-                                  ><span class="visually-hidden">became</span>
-                                }
-                                @if (change.op !== 'remove') {
-                                  <code class="after">{{ shortText(change.after) }}</code>
-                                }
-                              </span>
-                            </li>
-                          }
-                        </ul>
-                      } @else {
-                        <p class="muted">The state did not change.</p>
-                      }
-
-                      @if (selected.restorable && confirmSeq() === selected.seq) {
-                        <div
-                          class="confirm"
-                          role="group"
-                          aria-labelledby="ngrx-confirm-text"
-                          (keydown.escape)="cancelRestore($event)"
-                        >
-                          <p id="ngrx-confirm-text">
-                            @if (selected.source === 'store') {
-                              Store DevTools jumps the app state to the state right after action #{{
-                                selected.seq
-                              }}. Until you go back to the latest state, new actions are logged but
-                              do not change the state.
-                            } @else {
-                              This sets every state key of {{ current.label }} back to its value
-                              right after change #{{ selected.seq }}. Components that read the store
-                              update at once, and a new "Restore" entry is added to the log.
-                            }
-                          </p>
-                          <div class="actions">
-                            <button
-                              type="button"
-                              class="btn primary"
-                              [disabled]="busy()"
-                              (click)="restore(selected.seq, selected.source === 'store')"
-                            >
-                              Restore
-                            </button>
-                            <button
-                              type="button"
-                              class="btn"
-                              (click)="cancelRestore()"
-                              #cancelButton
-                            >
-                              Cancel
-                            </button>
-                          </div>
-                        </div>
-                      }
-                      @if (
-                        confirmSeq() !== selected.seq && (selected.restorable || canAgain(selected))
-                      ) {
-                        <div class="entry-actions">
-                          @if (selected.restorable) {
-                            <button
-                              type="button"
-                              class="btn restore"
-                              [disabled]="!canRestore()"
-                              [attr.aria-describedby]="canRestore() ? null : 'store-writes-off'"
-                              (click)="askRestore(selected.seq)"
-                              #restoreButton
-                            >
-                              Restore this state
-                            </button>
-                          }
-                          @if (canAgain(selected)) {
-                            <button
-                              type="button"
-                              class="btn"
-                              [disabled]="busy() || !canRestore()"
-                              [attr.aria-describedby]="canRestore() ? null : 'store-writes-off'"
-                              (click)="dispatchAgain(selected.seq)"
-                            >
-                              Dispatch again
-                            </button>
-                          }
-                        </div>
-                        @if (!canRestore()) {
-                          <p id="store-writes-off" class="hint small">{{ restoreOff }}</p>
-                        }
-                      }
-                      @if (!selected.restorable && selected.source === 'store') {
-                        <p class="hint small">
-                          @if (selected.unrestorable === 'dropped') {
-                            Store DevTools no longer holds this action, so this state cannot be
-                            restored. It was dropped past <code>maxAge</code>, or the Store DevTools
-                            history was committed, reset or imported.
-                          } @else if (selected.unrestorable === 'not-recorded') {
-                            Store DevTools never recorded this action, so this state cannot be
-                            restored. An <code>actionsBlocklist</code>,
-                            <code>actionsSafelist</code> or <code>predicate</code> option filtered
-                            it out, or recording was paused.
-                          } @else {
-                            Time travel for &#64;ngrx/store needs
-                            <code>provideStoreDevtools()</code>. Without it, entries cannot be
-                            restored.
-                          }
-                        </p>
-                      }
-                    </section>
+                  @if (changeEntry(); as selected) {
+                    <div id="ngrx-change-detail">
+                      <ng-container
+                        [ngTemplateOutlet]="entryDetailTpl"
+                        [ngTemplateOutletContext]="{
+                          selected: selected,
+                          headingLevel: 5,
+                          idPrefix: 'ngrx-change',
+                        }"
+                      />
+                    </div>
                   }
                 </div>
               </section>
@@ -531,6 +471,236 @@ const CLASSIC_KINDS = new Set([
       }
       <p class="message" role="status">{{ message() }}</p>
     </section>
+
+    @if (hasEvents()) {
+      <section class="block" aria-labelledby="ngrx-events-heading">
+        <div class="section-head">
+          <h2 id="ngrx-events-heading">Events</h2>
+          <span class="pill">{{ pageEvents().length }}</span>
+        </div>
+        <p class="intro">
+          Events dispatched through &#64;ngrx/signals/events, across every store on this page.
+        </p>
+        <ul class="events-list" aria-label="Dispatched events">
+          @for (evt of pageEvents(); track evt.seq) {
+            <li>
+              <button
+                type="button"
+                class="event-item"
+                [class.selected]="evt.seq === selectedEventSeq()"
+                [attr.aria-pressed]="evt.seq === selectedEventSeq()"
+                [attr.aria-controls]="evt.seq === selectedEventSeq() ? 'ngrx-event-detail' : null"
+                (click)="selectEvent(evt.seq)"
+              >
+                <span class="dot" aria-hidden="true" [style.background]="kindColor('event')"></span>
+                <span class="event-type mono" [title]="evt.eventType ?? evt.type">{{
+                  evt.eventType ?? evt.type
+                }}</span>
+                @if (evt.payload !== undefined) {
+                  <code class="event-payload" [title]="prettyText(evt.payload)">{{
+                    shortText(evt.payload)
+                  }}</code>
+                }
+                <span class="event-time">{{ formatTime(evt.timestamp) }}</span>
+              </button>
+            </li>
+          } @empty {
+            <li class="muted pad">No events match this filter.</li>
+          }
+        </ul>
+        @if (eventEntry(); as selected) {
+          <div id="ngrx-event-detail" tabindex="-1" class="event-detail-focus" #eventDetailHeading>
+            <ng-container
+              [ngTemplateOutlet]="entryDetailTpl"
+              [ngTemplateOutletContext]="{
+                selected: selected,
+                headingLevel: 3,
+                idPrefix: 'ngrx-event',
+              }"
+            />
+          </div>
+        }
+      </section>
+    }
+
+    <!--
+      Shared by both usages above: the per-store log (inside the store() guard) and the
+      page-level Events section (reachable with no live store at all, since a page can
+      dispatch @ngrx/signals/events without any signalStore/signalState instance). Only
+      "selected" is passed through context; everything else (store(), canRestore(), etc.)
+      is read directly since an embedded view still sees the component instance.
+    -->
+    <ng-template
+      #entryDetailTpl
+      let-selected="selected"
+      let-headingLevel="headingLevel"
+      let-idPrefix="idPrefix"
+    >
+      <section class="entry" [attr.aria-labelledby]="idPrefix + '-entry-heading'">
+        <div
+          class="entry-heading"
+          role="heading"
+          [attr.aria-level]="headingLevel"
+          [id]="idPrefix + '-entry-heading'"
+        >
+          #{{ selected.seq }} {{ selected.type }}
+        </div>
+        <dl class="kv">
+          <dt>Time</dt>
+          <dd>{{ formatTime(selected.timestamp) }}</dd>
+          @if (selected.origin) {
+            <dt>Origin</dt>
+            <dd>{{ originText(selected.origin) }}</dd>
+          }
+          @if (selected.durationMs !== undefined) {
+            <dt>Duration</dt>
+            <dd>{{ formatDuration(selected.durationMs) }}</dd>
+          }
+          @if (selected.action !== undefined) {
+            <dt>Action</dt>
+            <dd>
+              <pre class="code">{{ prettyText(selected.action) }}</pre>
+            </dd>
+          }
+          @if (selected.args?.length) {
+            <dt>Arguments</dt>
+            <dd>
+              <pre class="code">{{ prettyText(selected.args) }}</pre>
+            </dd>
+          }
+          @if (selected.source === 'event' && selected.payload !== undefined) {
+            <dt>Payload</dt>
+            <dd>
+              <pre class="code">{{ prettyText(selected.payload) }}</pre>
+            </dd>
+          }
+          @if (selected.causedByEvent; as caused) {
+            <dt>Caused by event</dt>
+            <dd>
+              <code class="mono">{{ caused.type }}</code>
+              @if (caused.payload !== undefined) {
+                <pre class="code">{{ prettyText(caused.payload) }}</pre>
+              }
+            </dd>
+          }
+        </dl>
+        @if (selected.source !== 'event') {
+          <div class="sub" role="heading" [attr.aria-level]="headingLevel + 1">State diff</div>
+          @if (selected.diff.length) {
+            <ul class="diff">
+              @for (change of selected.diff; track change.path) {
+                <li [class]="'diff-row ' + change.op">
+                  <span class="op">{{ opLabel(change.op) }}</span>
+                  <code class="path">{{ change.path }}</code>
+                  <span class="values">
+                    @if (change.op !== 'add') {
+                      <code class="before">{{ shortText(change.before) }}</code>
+                    }
+                    @if (change.op === 'change') {
+                      <span class="arrow" aria-hidden="true">→</span
+                      ><span class="visually-hidden">became</span>
+                    }
+                    @if (change.op !== 'remove') {
+                      <code class="after">{{ shortText(change.after) }}</code>
+                    }
+                  </span>
+                </li>
+              }
+            </ul>
+          } @else {
+            <p class="muted">The state did not change.</p>
+          }
+        }
+
+        @if (selected.restorable && confirmSeq() === selected.seq) {
+          <div
+            class="confirm"
+            role="group"
+            [attr.aria-labelledby]="idPrefix + '-confirm-text'"
+            (keydown.escape)="cancelRestore($event)"
+          >
+            <p [id]="idPrefix + '-confirm-text'">
+              @if (selected.source === 'store') {
+                Store DevTools jumps the app state to the state right after action #{{
+                  selected.seq
+                }}. Until you go back to the latest state, new actions are logged but do not change
+                the state.
+              } @else {
+                @if (store(); as current) {
+                  This sets every state key of {{ current.label }} back to its value right after
+                  change #{{ selected.seq }}. Components that read the store update at once, and a
+                  new "Restore" entry is added to the log.
+                } @else {
+                  This sets every state key of the store back to its value right after change #{{
+                    selected.seq
+                  }}. Components that read the store update at once, and a new "Restore" entry is
+                  added to the log.
+                }
+              }
+            </p>
+            <div class="actions">
+              <button
+                type="button"
+                class="btn primary"
+                [disabled]="busy()"
+                (click)="restore(selected.seq, selected.source === 'store')"
+              >
+                Restore
+              </button>
+              <button type="button" class="btn" (click)="cancelRestore()" #cancelButton>
+                Cancel
+              </button>
+            </div>
+          </div>
+        }
+        @if (confirmSeq() !== selected.seq && (selected.restorable || canAgain(selected))) {
+          <div class="entry-actions">
+            @if (selected.restorable) {
+              <button
+                type="button"
+                class="btn restore"
+                [disabled]="!canRestore()"
+                [attr.aria-describedby]="canRestore() ? null : idPrefix + '-writes-off'"
+                (click)="askRestore(selected.seq)"
+                #restoreButton
+              >
+                Restore this state
+              </button>
+            }
+            @if (canAgain(selected)) {
+              <button
+                type="button"
+                class="btn"
+                [disabled]="busy() || !canRestore()"
+                [attr.aria-describedby]="canRestore() ? null : idPrefix + '-writes-off'"
+                (click)="dispatchAgain(selected.seq)"
+              >
+                Dispatch again
+              </button>
+            }
+          </div>
+          @if (!canRestore()) {
+            <p [id]="idPrefix + '-writes-off'" class="hint small">{{ restoreOff }}</p>
+          }
+        }
+        @if (!selected.restorable && selected.source === 'store') {
+          <p class="hint small">
+            @if (selected.unrestorable === 'dropped') {
+              Store DevTools no longer holds this action, so this state cannot be restored. It was
+              dropped past <code>maxAge</code>, or the Store DevTools history was committed, reset
+              or imported.
+            } @else if (selected.unrestorable === 'not-recorded') {
+              Store DevTools never recorded this action, so this state cannot be restored. An
+              <code>actionsBlocklist</code>, <code>actionsSafelist</code> or
+              <code>predicate</code> option filtered it out, or recording was paused.
+            } @else {
+              Time travel for &#64;ngrx/store needs <code>provideStoreDevtools()</code>. Without it,
+              entries cannot be restored.
+            }
+          </p>
+        }
+      </section>
+    </ng-template>
 
     <section class="block" aria-labelledby="ngrx-source-heading">
       <div class="section-head">
@@ -623,6 +793,12 @@ const CLASSIC_KINDS = new Set([
       min-width: 0;
       color: var(--text);
       font-size: 13px;
+    }
+    .intro {
+      max-width: 720px;
+      margin: 0;
+      color: var(--text-2);
+      line-height: 1.5;
     }
     .toolbar {
       position: sticky;
@@ -862,15 +1038,18 @@ const CLASSIC_KINDS = new Set([
       transition: background-color 0.15s var(--ease);
     }
     .store-item:hover,
-    .log-item:hover {
+    .log-item:hover,
+    .event-item:hover {
       background: var(--surface-3);
     }
     .store-item:focus-visible,
-    .log-item:focus-visible {
+    .log-item:focus-visible,
+    .event-item:focus-visible {
       @include m.focus-ring(-2px);
     }
     .store-item.selected,
-    .log-item.selected {
+    .log-item.selected,
+    .event-item.selected {
       background: var(--accent-soft);
       box-shadow: inset 2px 0 0 var(--accent);
     }
@@ -994,6 +1173,10 @@ const CLASSIC_KINDS = new Set([
       flex-wrap: wrap;
       gap: 6px;
     }
+    .methods li {
+      flex-wrap: wrap;
+      row-gap: 2px;
+    }
     .tag {
       padding: 0 5px;
       border-radius: 4px;
@@ -1005,6 +1188,79 @@ const CLASSIC_KINDS = new Set([
       color: var(--text-3);
       font-family: var(--font-sans, inherit);
       font-size: 11px;
+    }
+    .entities {
+      display: grid;
+      gap: 14px;
+    }
+    .entity-group {
+      display: grid;
+      gap: 8px;
+    }
+    .entity-head {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .entity-count {
+      color: var(--text-2);
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
+    }
+    .entity-ids {
+      margin: 0;
+    }
+    .chip.more {
+      border-style: dashed;
+      color: var(--text-3);
+    }
+    .events-list {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      max-height: 260px;
+      overflow: auto;
+      padding: 6px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      @include m.enter;
+    }
+    .event-item {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px 10px;
+      width: 100%;
+      min-width: 0;
+      padding: 7px 10px;
+      border: none;
+      border-radius: var(--radius-sm);
+      background: transparent;
+      color: inherit;
+      font: inherit;
+      text-align: left;
+      cursor: pointer;
+      transition: background-color 0.15s var(--ease);
+    }
+    .event-type {
+      flex: none;
+      font-weight: 600;
+      color: var(--text-strong);
+      font-size: 12.5px;
+    }
+    .event-payload {
+      flex: 1 1 160px;
+      min-width: 0;
+      @include m.truncate;
+      color: var(--text-2);
+    }
+    .event-time {
+      flex: none;
+      margin-left: auto;
+      color: var(--text-3);
+      font-size: 11.5px;
+      font-variant-numeric: tabular-nums;
     }
     .log {
       min-width: 0;
@@ -1036,9 +1292,15 @@ const CLASSIC_KINDS = new Set([
       font-size: 11.5px;
       font-variant-numeric: tabular-nums;
     }
+    .log-type-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      min-width: 0;
+    }
     .log-type {
       @include m.truncate;
-      max-width: 100%;
+      min-width: 0;
       font-family: var(--font-mono);
       font-size: 12.5px;
       color: var(--text);
@@ -1053,7 +1315,7 @@ const CLASSIC_KINDS = new Set([
       border-radius: var(--radius-sm);
       @include m.enter(0.25s);
     }
-    .entry h5 {
+    .entry .entry-heading {
       margin: 0 0 12px;
       font-family: var(--font-mono);
       font-size: 13px;
@@ -1369,8 +1631,14 @@ export class StoreInspector {
   private readonly hostPageId = hostPageId();
   readonly maxLog = computed(() => panelConfig(this.rpc()).limits.changeLog);
   readonly selectedStoreId = signal<string | null>(null);
-  readonly selectedSeq = signal<number | null>(null);
+  // Two selection cursors so clicking an event never swaps out the per-store
+  // change-log detail: the change log keeps its own highlighted row, the
+  // Events section keeps its own, and each shows its detail in-place.
+  readonly selectedChangeSeq = signal<number | null>(null);
+  readonly selectedEventSeq = signal<number | null>(null);
+  private readonly focusEventSeq = signal<number | null>(null);
   readonly confirmSeq = signal<number | null>(null);
+  private readonly eventDetailHeading = viewChild<ElementRef<HTMLElement>>('eventDetailHeading');
   readonly busy = signal(false);
   private readonly focusLatest = signal(false);
   private readonly focusConfirm = signal<'cancel' | 'restore' | null>(null);
@@ -1462,9 +1730,27 @@ export class StoreInspector {
       .reverse();
   });
 
-  readonly entry = computed(
-    () => this.storeLog().find((e) => e.seq === this.selectedSeq()) ?? null,
-  );
+  readonly hasEvents = computed(() => (this.page()?.log ?? []).some((e) => e.source === 'event'));
+
+  readonly pageEvents = computed<NgrxLogEntry[]>(() => {
+    const f = this.filter().trim().toLowerCase();
+    return (this.page()?.log ?? [])
+      .filter((e) => e.source === 'event' && (!f || e.type.toLowerCase().includes(f)))
+      .slice()
+      .reverse();
+  });
+
+  readonly changeEntry = computed<NgrxLogEntry | null>(() => {
+    const seq = this.selectedChangeSeq();
+    if (seq === null) return null;
+    return this.storeLog().find((e) => e.seq === seq) ?? null;
+  });
+
+  readonly eventEntry = computed<NgrxLogEntry | null>(() => {
+    const seq = this.selectedEventSeq();
+    if (seq === null) return null;
+    return this.pageEvents().find((e) => e.seq === seq) ?? null;
+  });
 
   readonly dispatchType = signal('');
   readonly dispatchPayload = signal('');
@@ -1531,6 +1817,13 @@ export class StoreInspector {
       this.focusConfirm.set(null);
       button.nativeElement.focus();
     });
+    afterRenderEffect(() => {
+      const seq = this.focusEventSeq();
+      const detail = this.eventDetailHeading();
+      if (seq === null || !detail) return;
+      this.focusEventSeq.set(null);
+      detail.nativeElement.focus();
+    });
     this.destroyRef.onDestroy(() => this.unsubscribe?.());
   }
 
@@ -1568,20 +1861,21 @@ export class StoreInspector {
   selectPage(pageId: string | null) {
     this.selectedPageId.set(pageId);
     this.selectedStoreId.set(null);
-    this.selectedSeq.set(null);
+    this.selectedChangeSeq.set(null);
+    this.selectedEventSeq.set(null);
     this.confirmSeq.set(null);
     this.message.set('');
   }
 
   selectStore(id: string) {
     this.selectedStoreId.set(id);
-    this.selectedSeq.set(null);
+    this.selectedChangeSeq.set(null);
     this.confirmSeq.set(null);
     this.message.set('');
   }
 
-  selectEntry(seq: number) {
-    this.selectedSeq.set(this.selectedSeq() === seq ? null : seq);
+  selectChange(seq: number) {
+    this.selectedChangeSeq.set(this.selectedChangeSeq() === seq ? null : seq);
     this.confirmSeq.set(null);
     this.message.set('');
   }
@@ -1618,6 +1912,12 @@ export class StoreInspector {
       this.focusLatest.set(paused);
       if (!paused) this.stateTree()?.nativeElement.focus();
     }
+  }
+
+  selectEvent(seq: number) {
+    const newSeq = this.selectedEventSeq() === seq ? null : seq;
+    this.selectedEventSeq.set(newSeq);
+    if (newSeq !== null) this.focusEventSeq.set(newSeq);
   }
 
   async backToLatest() {
@@ -1668,7 +1968,7 @@ export class StoreInspector {
       this.message.set(result?.error ?? result?.message ?? 'Dispatched.');
       if (result?.entry) {
         this.selectedStoreId.set('store');
-        this.selectedSeq.set(result.entry.seq);
+        this.selectedChangeSeq.set(result.entry.seq);
       }
     } catch {
       this.message.set(offline);
@@ -1684,6 +1984,15 @@ export class StoreInspector {
 
   changeCount(id: string): number {
     return (this.page()?.log ?? []).filter((e) => e.storeId === id).length;
+  }
+
+  entityIds(ids: (string | number)[]): (string | number)[] {
+    return ids.slice(0, 30);
+  }
+
+  entityOverflowTitle(ids: (string | number)[], count: number): string {
+    const overflow = ids.slice(30).join(', ');
+    return count > ids.length ? `${overflow} (first ${ids.length} of ${count} shown)` : overflow;
   }
 
   kindColor(kind: string) {
@@ -1711,4 +2020,17 @@ export class StoreInspector {
   }
 
   readonly formatTime = time;
+
+  formatDuration(ms: number): string {
+    return ms <= 0 ? '<1ms' : `${Math.round(ms)}ms`;
+  }
+
+  methodDuration(method: { lastDurationMs?: number; avgDurationMs?: number }): string {
+    const parts: string[] = [];
+    if (method.avgDurationMs !== undefined)
+      parts.push(`avg ${this.formatDuration(method.avgDurationMs)}`);
+    if (method.lastDurationMs !== undefined)
+      parts.push(`last ${this.formatDuration(method.lastDurationMs)}`);
+    return parts.length ? ` · ${parts.join(' · ')}` : '';
+  }
 }

@@ -10,7 +10,46 @@ export interface NgrxSignalStoreInfo {
   stateKeys: string[];
   state: Record<string, unknown>;
   computed: Record<string, unknown>;
-  methods: { name: string; calls: number; rx?: boolean }[];
+  /**
+   * `withEntities()` collections found in `state`/`computed`. `withEntities()` is
+   * `withState({ entityMap, ids })` (or `${collection}EntityMap`/`${collection}Ids`)
+   * plus a computed `entities` selector, so this is a summary of data already in
+   * `state`/`computed`, not a new capability. `selectedId`/`selected` are a best-effort
+   * read of a common app convention (a plain `selectedId` state field), not a real
+   * @ngrx/signals API. `selectedId` is set once that state field holds a non-null value;
+   * `selected` is only set when that id resolves to an entity in the collection, so a
+   * stale/dangling id shows `selectedId` without `selected`.
+   */
+  entities?: {
+    collection?: string;
+    idsKey: string;
+    entityMapKey: string;
+    entitiesKey?: string;
+    ids: (string | number)[];
+    count: number;
+    selectedIdKey?: string;
+    selectedId?: unknown;
+    selected?: unknown;
+  }[];
+  /**
+   * `lastDurationMs`/`avgDurationMs` are the wall-clock time of the synchronous method
+   * call only (see {@link NgrxLogEntry.durationMs}), not any async work the call started.
+   * `avgDurationMs` is a running average across every call, not a percentile.
+   *
+   * `rx`/`signalMethod` label the member so the panel and agent tools can tell
+   * `rxMethod` apart from `signalMethod` — both attach a `.destroy` to the
+   * returned callable, so the runtime cannot distinguish them. The source
+   * scan does, and `nameStore()` propagates the label once it matches a store
+   * to its declaring file.
+   */
+  methods: {
+    name: string;
+    calls: number;
+    rx?: boolean;
+    signalMethod?: boolean;
+    lastDurationMs?: number;
+    avgDurationMs?: number;
+  }[];
   references: string[];
   writable: boolean;
 }
@@ -36,7 +75,7 @@ export type NgrxUnrestorable = 'dropped' | 'not-recorded';
 
 export interface NgrxLogEntry {
   seq: number;
-  source: 'signal-store' | 'store';
+  source: 'signal-store' | 'store' | 'event';
   storeId: string;
   type: string;
   args?: unknown[];
@@ -45,6 +84,23 @@ export interface NgrxLogEntry {
   timestamp: number;
   diff: NgrxDiffEntry[];
   restorable: boolean;
+  /**
+   * Set only for an entry produced inside a wrapped `signalStore` method call, never for
+   * a plain `patchState` write or a restore. Without `watchState` registered it is how
+   * long the synchronous call took to return; with it, the time from the start of the
+   * method to that patch. Neither covers async work the method started.
+   */
+  durationMs?: number;
+  /** `source: 'event'` only: the dispatched `@ngrx/signals/events` event's type and payload. */
+  eventType?: string;
+  payload?: unknown;
+  /**
+   * `source: 'signal-store'` only: set when a `withReducer()` case reducer patched this
+   * store's state synchronously while handling this event. There is no way to recover
+   * which case reducer matched (it is a closure), so this only correlates at the store
+   * level, not the specific reducer.
+   */
+  causedByEvent?: { type: string; payload?: unknown };
   unrestorable?: NgrxUnrestorable;
 }
 

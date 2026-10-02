@@ -141,9 +141,9 @@ To send data again, call `initOverlay`. It does not add the floating button back
 
 ## NgRx signal stores
 
-The overlay also exports `registerNgrxSignals`. Call it once with `patchState` so that restoring a store's state also notifies `watchState` listeners:
+The overlay also exports `registerNgrxSignals`. Call it once with `patchState` and `watchState`. Restoring a store's state then notifies `watchState` listeners, and the change log gets one entry per `patchState` call:
 
-```ts {8-11}
+```ts {8-13}
 // src/main.ts
 import {bootstrapApplication} from '@angular/platform-browser';
 import {App} from './app/app';
@@ -154,7 +154,9 @@ bootstrapApplication(App, appConfig).then(() => {
     return Promise.all([
       import('@santoshyadavdev/ng-devtools/overlay'),
       import('@ngrx/signals'),
-    ]).then(([devtools, {patchState}]) => devtools.registerNgrxSignals({patchState}));
+    ]).then(([devtools, {patchState, watchState}]) =>
+      devtools.registerNgrxSignals({patchState, watchState}),
+    );
   }
   return undefined;
 });
