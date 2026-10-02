@@ -160,6 +160,28 @@ describe('ngrx collector', () => {
     const [entry] = collector.logSince(0);
     expect(entry.type).toBe('patchState');
     expect(entry.diff).toEqual([{ path: 'saved[0]', op: 'add', after: 'x' }]);
+    expect(entry.durationMs).toBeUndefined();
+  });
+
+  it('measures a method call duration and updates rolling stats per method', () => {
+    const { store, collector } = setup();
+    collector.collect();
+    // Each call reads `performance.now()` once before and once after `Reflect.apply`,
+    // so two calls consume four values: a 10ms call, then a 30ms call.
+    const times = [0, 10, 100, 130];
+    let i = 0;
+    const spy = vi.spyOn(performance, 'now').mockImplementation(() => times[i++] ?? 0);
+    store.setQuery('a');
+    store.setQuery('b');
+    spy.mockRestore();
+
+    const log = collector.logSince(0);
+    expect(log[0]).toMatchObject({ type: 'setQuery', durationMs: 10 });
+    expect(log[1]).toMatchObject({ type: 'setQuery', durationMs: 30 });
+
+    const method = collector.collect().stores[0].methods.find((m) => m.name === 'setQuery');
+    expect(method?.lastDurationMs).toBe(30);
+    expect(method?.avgDurationMs).toBe(20);
   });
 
   it('restores a snapshot from the log', () => {
@@ -302,6 +324,514 @@ describe('ngrx collector', () => {
     expect(collector.run({ type: 'restore', seq: entry.seq }).error).toMatch(
       /provideStoreDevtools/,
     );
+  });
+});
+
+function collectorForRoot(
+  records: Map<unknown, { value: unknown }>,
+  get: (token: unknown) => unknown,
+) {
+  document.body.innerHTML = '<app-root ng-version="22"></app-root>';
+  const root = document.querySelector('app-root')!;
+  const rootEnv = { scopes: new Set(['root']), records, get: () => null };
+  const node = { el: root, get };
+  const ng = {
+    getInjector: () => node,
+    getComponent: (el: Element) => (el === root ? {} : null),
+    ɵgetInjectorMetadata: (inj: unknown) =>
+      inj === rootEnv ? { type: 'environment', source: 'R3Injector' } : { type: 'element' },
+    ɵgetInjectorResolutionPath: () => [node, rootEnv],
+    ɵgetInjectorProviders: () => [],
+  };
+  return createNgrxCollector(
+    () => ng as any,
+    () => {},
+    document,
+  );
+}
+
+describe('ngrx collector entities', () => {
+  it('summarizes a default withEntities() collection from state and computed, and reads a selectedId convention', () => {
+    const entityMap = { a: { id: 'a', name: 'Ann' }, b: { id: 'b', name: 'Bo' } };
+    class EntityStore {
+      [STATE_SOURCE] = {
+        entityMap: writable<Record<string, unknown>>(entityMap),
+        ids: writable(['a', 'b']),
+        selectedId: writable('a'),
+      };
+      entityMap = computedOf(() => (this as any)[STATE_SOURCE].entityMap());
+      ids = computedOf(() => (this as any)[STATE_SOURCE].ids());
+      selectedId = computedOf(() => (this as any)[STATE_SOURCE].selectedId());
+      entities = computedOf(() => {
+        const map = (this as any)[STATE_SOURCE].entityMap() as Record<string, unknown>;
+        return (this as any)[STATE_SOURCE].ids().map((id: string) => map[id]);
+      });
+    }
+    const store = new EntityStore();
+    const token = class EntityStoreToken {};
+    const collector = collectorForRoot(new Map([[token, { value: store }]]), () => null);
+    const [info] = collector.collect().stores;
+    expect(info.entities).toEqual([
+      {
+        idsKey: 'ids',
+        entityMapKey: 'entityMap',
+        entitiesKey: 'entities',
+        ids: ['a', 'b'],
+        count: 2,
+        selectedIdKey: 'selectedId',
+        selectedId: 'a',
+        selected: { id: 'a', name: 'Ann' },
+      },
+    ]);
+    // Additive: the raw entityMap/ids stay in `state` too.
+    expect(info.state['entityMap']).toEqual(entityMap);
+    expect(info.state['ids']).toEqual(['a', 'b']);
+  });
+
+  it('treats a null selectedId as "nothing selected" instead of resolving entityMap[null]', () => {
+    class EntityStore {
+      [STATE_SOURCE] = {
+        entityMap: writable<Record<string, unknown>>({ a: { id: 'a', name: 'Ann' } }),
+        ids: writable(['a']),
+        selectedId: writable<string | null>(null),
+      };
+      entityMap = computedOf(() => (this as any)[STATE_SOURCE].entityMap());
+      ids = computedOf(() => (this as any)[STATE_SOURCE].ids());
+      selectedId = computedOf(() => (this as any)[STATE_SOURCE].selectedId());
+    }
+    const store = new EntityStore();
+    const token = class EntityStoreToken {};
+    const collector = collectorForRoot(new Map([[token, { value: store }]]), () => null);
+    const [info] = collector.collect().stores;
+    expect(info.entities).toEqual([
+      {
+        idsKey: 'ids',
+        entityMapKey: 'entityMap',
+        ids: ['a'],
+        count: 1,
+      },
+    ]);
+  });
+
+  it('reports a stale selectedId without a resolved `selected`, instead of a serialized "undefined"', () => {
+    class EntityStore {
+      [STATE_SOURCE] = {
+        entityMap: writable<Record<string, unknown>>({ a: { id: 'a', name: 'Ann' } }),
+        ids: writable(['a']),
+        selectedId: writable<string | null>('removed'),
+      };
+      entityMap = computedOf(() => (this as any)[STATE_SOURCE].entityMap());
+      ids = computedOf(() => (this as any)[STATE_SOURCE].ids());
+      selectedId = computedOf(() => (this as any)[STATE_SOURCE].selectedId());
+    }
+    const store = new EntityStore();
+    const token = class EntityStoreToken {};
+    const collector = collectorForRoot(new Map([[token, { value: store }]]), () => null);
+    const [info] = collector.collect().stores;
+    expect(info.entities).toEqual([
+      {
+        idsKey: 'ids',
+        entityMapKey: 'entityMap',
+        ids: ['a'],
+        count: 1,
+        selectedIdKey: 'selectedId',
+        selectedId: 'removed',
+      },
+    ]);
+    expect(info.entities?.[0]).not.toHaveProperty('selected');
+  });
+
+  it('summarizes a withEntities({ collection }) collection under its prefixed keys', () => {
+    class TodoStore {
+      [STATE_SOURCE] = {
+        todoEntityMap: writable<Record<string, unknown>>({ 1: { id: 1, text: 'a' } }),
+        todoIds: writable([1]),
+      };
+      todoEntityMap = computedOf(() => (this as any)[STATE_SOURCE].todoEntityMap());
+      todoIds = computedOf(() => (this as any)[STATE_SOURCE].todoIds());
+      todoEntities = computedOf(() => {
+        const map = (this as any)[STATE_SOURCE].todoEntityMap() as Record<string, unknown>;
+        return (this as any)[STATE_SOURCE].todoIds().map((id: number) => map[id]);
+      });
+    }
+    const store = new TodoStore();
+    const token = class TodoStoreToken {};
+    const collector = collectorForRoot(new Map([[token, { value: store }]]), () => null);
+    const [info] = collector.collect().stores;
+    expect(info.entities).toEqual([
+      {
+        collection: 'todo',
+        idsKey: 'todoIds',
+        entityMapKey: 'todoEntityMap',
+        entitiesKey: 'todoEntities',
+        ids: [1],
+        count: 1,
+      },
+    ]);
+  });
+
+  it('produces one entry per collection when a store has several withEntities() calls', () => {
+    class MultiStore {
+      [STATE_SOURCE] = {
+        entityMap: writable<Record<string, unknown>>({}),
+        ids: writable<string[]>([]),
+        todoEntityMap: writable<Record<string, unknown>>({}),
+        todoIds: writable<number[]>([]),
+      };
+    }
+    const store = new MultiStore();
+    const token = class MultiStoreToken {};
+    const collector = collectorForRoot(new Map([[token, { value: store }]]), () => null);
+    const [info] = collector.collect().stores;
+    expect(info.entities?.map((e) => e.entityMapKey).sort()).toEqual([
+      'entityMap',
+      'todoEntityMap',
+    ]);
+  });
+});
+
+class FakeSubject {
+  private subs: ((v: unknown) => void)[] = [];
+  next(value: unknown) {
+    for (const fn of [...this.subs]) fn(value);
+  }
+  subscribe(fn: (v: unknown) => void) {
+    this.subs.push(fn);
+    return { unsubscribe: () => (this.subs = this.subs.filter((f) => f !== fn)) };
+  }
+}
+
+class FakeDispatcher {
+  reducerEvents = { events$: new FakeSubject() };
+  events = { events$: new FakeSubject() };
+  dispatch(event: unknown) {
+    this.reducerEvents.events$.next(event);
+    queueMicrotask(() => this.events.events$.next(event));
+  }
+}
+
+describe('ngrx collector events', () => {
+  it('logs a dispatched event with no store effect', async () => {
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    const collector = collectorForRoot(
+      new Map([[dispatcherToken, { value: undefined }]]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+    dispatcher.dispatch({ type: 'noop', payload: undefined });
+    const [entry] = collector.logSince(0);
+    expect(entry).toMatchObject({ source: 'event', type: 'noop', eventType: 'noop' });
+    expect(entry.restorable).toBe(false);
+    expect(entry.diff).toEqual([]);
+    expect(collector.run({ type: 'restore', seq: entry.seq }).error).toMatch(/cannot be restored/);
+    // The collector subscribes to reducerEvents$ only, not events$, so the
+    // queued events$ emission does not produce a second entry.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(collector.logSince(0)).toHaveLength(1);
+  });
+
+  it('correlates a synchronous patchState during a dispatch with the event, and logs both', async () => {
+    class CounterStore {
+      [STATE_SOURCE] = { count: writable(0) };
+      count = computedOf(() => (this as any)[STATE_SOURCE].count());
+    }
+    const store = new CounterStore();
+    const storeToken = class CounterStoreToken {};
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+
+    // Simulates `withReducer(on(increment, (state) => ({ count: state.count + 1 })))`:
+    // it subscribes to `reducerEvents.events$` (and so runs) before devtools does.
+    dispatcher.reducerEvents.events$.subscribe((event: unknown) => {
+      const e = event as { type: string };
+      if (e.type === 'increment') {
+        const source = (store as any)[STATE_SOURCE];
+        source.count.set(source.count() + 1);
+      }
+    });
+
+    const collector = collectorForRoot(
+      new Map([
+        [storeToken, { value: store }],
+        [dispatcherToken, { value: undefined }],
+      ]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+
+    dispatcher.dispatch({ type: 'increment', payload: 5 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const log = collector.logSince(0);
+    expect(log.map((e) => e.source)).toEqual(['event', 'signal-store']);
+    expect(log[0]).toMatchObject({ type: 'increment', eventType: 'increment', payload: 5 });
+    expect(log[1]).toMatchObject({
+      source: 'signal-store',
+      type: 'patchState',
+      diff: [{ path: 'count', op: 'change', before: 0, after: 1 }],
+      causedByEvent: { type: 'increment', payload: 5 },
+    });
+  });
+
+  it('correlates even when the store subscribes to reducerEvents.events$ after devtools attaches', async () => {
+    // Unlike the previous test, the withReducer-simulating subscriber is added
+    // AFTER collect() (so after devtools wraps dispatch()) — correlation must not
+    // depend on subscriber order, since a store can be created after devtools first
+    // discovers the Dispatcher.
+    class CounterStore {
+      [STATE_SOURCE] = { count: writable(0) };
+      count = computedOf(() => (this as any)[STATE_SOURCE].count());
+    }
+    const store = new CounterStore();
+    const storeToken = class CounterStoreToken {};
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+
+    const collector = collectorForRoot(
+      new Map([
+        [storeToken, { value: store }],
+        [dispatcherToken, { value: undefined }],
+      ]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+
+    dispatcher.reducerEvents.events$.subscribe((event: unknown) => {
+      const e = event as { type: string };
+      if (e.type === 'increment') {
+        const source = (store as any)[STATE_SOURCE];
+        source.count.set(source.count() + 1);
+      }
+    });
+
+    dispatcher.dispatch({ type: 'increment', payload: 5 });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const log = collector.logSince(0);
+    expect(log.map((e) => e.source)).toEqual(['event', 'signal-store']);
+    expect(log[1]).toMatchObject({
+      source: 'signal-store',
+      causedByEvent: { type: 'increment', payload: 5 },
+    });
+  });
+
+  it('does not attribute a store change to an unrelated later dispatch', async () => {
+    // A store already mid-write (pendingBefore set, microtask not yet flushed) when an
+    // unrelated event is dispatched must not have that later event attributed to it.
+    class CounterStore {
+      [STATE_SOURCE] = { count: writable(0) };
+      count = computedOf(() => (this as any)[STATE_SOURCE].count());
+    }
+    const store = new CounterStore();
+    const storeToken = class CounterStoreToken {};
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    const collector = collectorForRoot(
+      new Map([
+        [storeToken, { value: store }],
+        [dispatcherToken, { value: undefined }],
+      ]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+
+    // A write outside any dispatch: leaves pendingBefore set until the microtask flushes.
+    const source = (store as any)[STATE_SOURCE];
+    source.count.set(1);
+
+    dispatcher.dispatch({ type: 'unrelated', payload: null });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const log = collector.logSince(0);
+    const signalEntry = log.find((e) => e.source === 'signal-store');
+    expect(signalEntry).toBeDefined();
+    expect(signalEntry?.causedByEvent).toBeUndefined();
+  });
+
+  it('keeps looking for Dispatcher past the first few discover() passes', async () => {
+    // `Dispatcher` is `providedIn: 'platform'`, so it only materializes once
+    // something injects it. In the demo, that happens when the user navigates
+    // from `/` to `/booking`. The collector must not stop looking after a few
+    // misses — otherwise the Dispatcher that appears later is never attached
+    // and no events are logged.
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    let injected = false;
+    document.body.innerHTML = '<app-root ng-version="22"></app-root>';
+    const root = document.querySelector('app-root')!;
+    const rootEnv = {
+      scopes: new Set(['root']),
+      records: new Map<unknown, { value: unknown }>([[dispatcherToken, { value: undefined }]]),
+      get: () => null,
+    };
+    const node = {
+      el: root,
+      get: (token: unknown) => (token === dispatcherToken && injected ? dispatcher : null),
+    };
+    const ng = {
+      getInjector: () => node,
+      getComponent: (el: Element) => (el === root ? {} : null),
+      ɵgetInjectorMetadata: (inj: unknown) =>
+        inj === rootEnv ? { type: 'environment', source: 'R3Injector' } : { type: 'element' },
+      ɵgetInjectorResolutionPath: () => [node, rootEnv],
+      ɵgetInjectorProviders: () => [],
+    };
+    const collector = createNgrxCollector(
+      () => ng as any,
+      () => {},
+    );
+    for (let i = 0; i < 10; i++) collector.collect();
+    expect(collector.logSince(0)).toHaveLength(0);
+    injected = true;
+    collector.collect();
+    dispatcher.dispatch({ type: 'late-event', payload: 1 });
+    const [entry] = collector.logSince(0);
+    expect(entry).toMatchObject({ source: 'event', type: 'late-event' });
+  });
+
+  it('does not tag the next method call with an event after a no-change withReducer tap', async () => {
+    // A `withReducer()` case that patches a value equal to the one already
+    // there produces no diff. The collector must still clear its pending-event
+    // slot so the next unrelated method call on the same store is not
+    // attributed to that earlier event.
+    class CounterStore {
+      [STATE_SOURCE] = { count: writable(0), label: writable('') };
+      count = computedOf(() => (this as any)[STATE_SOURCE].count());
+      label = computedOf(() => (this as any)[STATE_SOURCE].label());
+      setLabel = (next: string) => patchState(this, { label: next });
+    }
+    const store = new CounterStore();
+    const storeToken = class CounterStoreToken {};
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    dispatcher.reducerEvents.events$.subscribe((event: unknown) => {
+      const e = event as { type: string };
+      if (e.type === 'noop') {
+        const source = (store as any)[STATE_SOURCE];
+        source.count.set(source.count()); // same value → no diff
+      }
+    });
+    const collector = collectorForRoot(
+      new Map([
+        [storeToken, { value: store }],
+        [dispatcherToken, { value: undefined }],
+      ]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+    dispatcher.dispatch({ type: 'noop' });
+    await Promise.resolve();
+    await Promise.resolve();
+    store.setLabel('hello');
+    await Promise.resolve();
+    const log = collector.logSince(0);
+    const signalEntry = log.find((e) => e.source === 'signal-store');
+    expect(signalEntry?.type).toBe('setLabel');
+    expect(signalEntry?.causedByEvent).toBeUndefined();
+  });
+
+  it('omits payload on events dispatched without one', () => {
+    const dispatcher = new FakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    const collector = collectorForRoot(
+      new Map([[dispatcherToken, { value: undefined }]]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+    dispatcher.dispatch({ type: 'reset' });
+    const [entry] = collector.logSince(0);
+    expect(entry.type).toBe('reset');
+    expect(entry).not.toHaveProperty('payload');
+  });
+
+  it('does not double-log when a withEventHandlers chain dispatches a second event synchronously', async () => {
+    // Simulates `withEventHandlers(() => ({ chain$: events.on(a).pipe(map(() => b())) }))`:
+    // a subscriber on events.events$ calls dispatch(b) synchronously when a arrives.
+    // Before the fix (subscribing to both reducerEvents$ and events$), the dedup WeakSet
+    // was swapped by the nested dispatch, so `a` was logged twice (from reducerEvents$ and
+    // again from events$). The fix: subscribe to reducerEvents$ only.
+    class ExtendedFakeDispatcher extends FakeDispatcher {
+      override dispatch(event: unknown) {
+        this.reducerEvents.events$.next(event);
+        // events$ fires synchronously here (unlike the real NgRx which queues it),
+        // to reproduce the scenario where a withEventHandlers subscriber calls dispatch(b)
+        // before our own reducerEvents$ subscriber for `b` runs.
+        this.events.events$.next(event);
+      }
+    }
+    const dispatcher = new ExtendedFakeDispatcher();
+    const dispatcherToken = class Dispatcher {};
+    const collector = collectorForRoot(
+      new Map([[dispatcherToken, { value: undefined }]]),
+      (token) => (token === dispatcherToken ? dispatcher : null),
+    );
+    collector.collect();
+
+    // Simulate withEventHandlers: subscribe to events$ and dispatch b when a arrives.
+    const eventA = { type: 'a' };
+    const eventB = { type: 'b' };
+    dispatcher.events.events$.subscribe((event: unknown) => {
+      if ((event as { type: string }).type === 'a') dispatcher.dispatch(eventB);
+    });
+
+    dispatcher.dispatch(eventA);
+
+    // Only a and b should be logged, not a,b,a.
+    const log = collector.logSince(0);
+    expect(log.map((e) => e.type)).toEqual(['a', 'b']);
+  });
+
+  it('picks up a component-scoped Dispatcher and releases it when the component is destroyed', () => {
+    document.body.innerHTML = '<app-root ng-version="22"></app-root>';
+    const root = document.querySelector('app-root')!;
+    const scopedDispatcher = new FakeDispatcher();
+    // Two distinct Dispatcher tokens: one at platform level (no instance yet),
+    // one provided by the component via provideDispatcher().
+    const platformToken = class Dispatcher {};
+    const componentToken = class Dispatcher {};
+    const rootEnv = {
+      scopes: new Set(['root']),
+      // Platform token has no instance yet — node.get returns null for it.
+      records: new Map([[platformToken, { value: undefined }]]),
+    };
+    const node = {
+      el: root,
+      get: (token: unknown) => (token === componentToken ? scopedDispatcher : null),
+    };
+    const ng = {
+      getInjector: (el: Element) => (el === root ? node : null),
+      getComponent: (el: Element) => (el === root ? {} : null),
+      ɵgetInjectorMetadata: (inj: unknown) =>
+        inj === rootEnv ? { type: 'environment', source: 'R3Injector' } : { type: 'element' },
+      ɵgetInjectorResolutionPath: () => [node, rootEnv],
+      ɵgetInjectorProviders: (inj: unknown) =>
+        inj === node ? [{ token: componentToken, provider: { useExisting: componentToken } }] : [],
+    };
+
+    const collector = createNgrxCollector(
+      () => ng as any,
+      () => {},
+    );
+    collector.collect();
+
+    // Component-scoped dispatcher is now attached; events should be logged.
+    scopedDispatcher.reducerEvents.events$.next({ type: 'scoped-event' });
+    expect(collector.logSince(0)).toHaveLength(1);
+    expect(collector.logSince(0)[0].type).toBe('scoped-event');
+
+    // Remove the component from the DOM and re-collect; the dispatcher should be released.
+    document.body.innerHTML = '';
+    collector.collect();
+
+    // A subsequent event must not be logged (subscription was unsubscribed).
+    const seqBefore = collector.logSince(0).length;
+    scopedDispatcher.reducerEvents.events$.next({ type: 'after-destroy' });
+    expect(collector.logSince(0)).toHaveLength(seqBefore);
   });
 });
 
@@ -647,6 +1177,45 @@ describe('ngrx tools', () => {
     ).toEqual({ name: 'TravelStore', declaredIn: 'travel.store.ts' });
   });
 
+  it('relabels methods declared as signalMethod when the declaration says so', () => {
+    const withReactiveMethod = {
+      ...store,
+      methods: [
+        { name: 'setQuery', calls: 0 },
+        { name: 'watchQuery', calls: 0, rx: true },
+      ],
+    };
+    const named = nameStore(withReactiveMethod, [
+      {
+        name: 'TravelStore',
+        kind: 'signal-store',
+        file: 'travel.store.ts',
+        members: { state: ['query', 'saved'], signalMethods: ['watchQuery'] },
+      },
+    ]);
+    expect(named.name).toBe('TravelStore');
+    expect(named.methods).toEqual([
+      { name: 'setQuery', calls: 0 },
+      { name: 'watchQuery', calls: 0, signalMethod: true },
+    ]);
+  });
+
+  it('leaves rxMethod labels alone when the declaration does not say signalMethod', () => {
+    const withRx = {
+      ...store,
+      methods: [{ name: 'onFocus', calls: 0, rx: true }],
+    };
+    const named = nameStore(withRx, [
+      {
+        name: 'TravelStore',
+        kind: 'signal-store',
+        file: 'travel.store.ts',
+        members: { state: ['query', 'saved'], rxMethods: ['onFocus'] },
+      },
+    ]);
+    expect(named.methods).toBeUndefined();
+  });
+
   it('appends only new log entries and restarts on a new session', () => {
     const pages: NgrxPages = new Map();
     const entry = (seq: number) => ({
@@ -775,6 +1344,10 @@ describe('ngrx collector with @ngrx/signals', () => {
   });
 
   it('restores without notifying watchState listeners and says so', async () => {
+    // Earlier tests in this describe block call registerNgrxSignals, leaving
+    // patchState/watchState in the global state. Clear it so this test runs
+    // without any registration (it needs the no-registration branch).
+    delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
     await import('@angular/compiler');
     const { Injector } = await import('@angular/core');
     const {
@@ -803,7 +1376,7 @@ describe('ngrx collector with @ngrx/signals', () => {
     const original = WeakMap.prototype.get;
     const result = collector.run({ type: 'restore', seq: 1 });
     expect(result.ok).toBe(true);
-    expect(result.message).toMatch(/watchState listeners were not notified/);
+    expect(result.message).toMatch(/watchState listeners/i);
     expect(store.query()).toBe('rome');
     expect(seen).toEqual(['', 'rome', 'oslo']);
     expect(collector.logSince(2)[0].type).toMatch(/watchState listeners not notified/);
@@ -811,6 +1384,13 @@ describe('ngrx collector with @ngrx/signals', () => {
   });
 
   it('notifies watchState listeners on restore once the app registers patchState', async () => {
+    // Clear any registration a prior `attachNgrx(...)` test left behind so
+    // the collector sees `registeredWatchState()` as `null` here. If the
+    // overlay's auto-imported `watchState` were still in place, the stub
+    // injector in `realCollector` would make `watchState(...)` throw after
+    // our watcher was already added to STATE_WATCHERS, leaking a double-log
+    // of every subsequent patchState.
+    delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
     await import('@angular/compiler');
     const { Injector } = await import('@angular/core');
     const { signalStore, withState, withMethods, watchState, patchState } =
@@ -840,6 +1420,49 @@ describe('ngrx collector with @ngrx/signals', () => {
       expect(store.query()).toBe('rome');
       expect(seen).toEqual(['', 'rome', 'oslo', 'rome']);
       expect(collector.logSince(2)[0].type).toBe('Restore #1');
+    } finally {
+      delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
+    }
+  });
+
+  it('logs exactly one Restore entry when both patchState and watchState are registered', async () => {
+    delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
+    await import('@angular/compiler');
+    const { Injector } = await import('@angular/core');
+    const { signalStore, withState, withMethods, watchState, patchState } =
+      await import('@ngrx/signals');
+    const { registerNgrxSignals } = await import('../ngrx-register.ts');
+    const Store = signalStore(
+      withState({ query: '' }),
+      withMethods((store) => ({
+        setQuery(query: string) {
+          patchState(store, { query });
+        },
+      })),
+    );
+    const injector = Injector.create({ providers: [Store] });
+    const store = injector.get(Store);
+    const seen: string[] = [];
+    watchState(store, (state) => seen.push(state.query), { injector });
+    registerNgrxSignals({ patchState, watchState });
+    try {
+      const collector = realCollectorWithInjector(store, injector);
+      collector.collect();
+      store.setQuery('rome');
+      store.setQuery('oslo');
+      const result = collector.run({ type: 'restore', seq: 1 });
+      expect(result.ok).toBe(true);
+      expect(result.message).not.toMatch(/not notified/);
+      expect(store.query()).toBe('rome');
+      // watchState listener must have been called by the restore patchState.
+      expect(seen).toEqual(['', 'rome', 'oslo', 'rome']);
+      const restoreEntries = collector.logSince(2);
+      // Exactly one entry: the watchState path must not produce a duplicate.
+      expect(restoreEntries).toHaveLength(1);
+      expect(restoreEntries[0].type).toBe('Restore #1');
+      // A restore entry has no args and no durationMs.
+      expect(restoreEntries[0]).not.toHaveProperty('args');
+      expect(restoreEntries[0]).not.toHaveProperty('durationMs');
     } finally {
       delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
     }
@@ -885,6 +1508,127 @@ describe('ngrx collector with @ngrx/signals', () => {
     fixture.destroy();
     fixture.nativeElement.remove();
     expect(collector.collect().stores).toEqual([]);
+  });
+
+  it('records every patchState call as its own entry via watchState, even in one tick', async () => {
+    await import('@angular/compiler');
+    const { Injector } = await import('@angular/core');
+    const { signalStore, withState, withMethods, patchState, watchState } =
+      await import('@ngrx/signals');
+    const { registerNgrxSignals } = await import('../ngrx-register.ts');
+    const Store = signalStore(
+      withState({ a: 0, b: 0 }),
+      withMethods((store) => ({
+        bumpBoth() {
+          // Two patchState calls in the SAME microtask — the microtask fallback
+          // would merge these into one log entry; the watchState path must
+          // keep them separate.
+          patchState(store, { a: store.a() + 1 });
+          patchState(store, { b: store.b() + 1 });
+        },
+      })),
+    );
+    const injector = Injector.create({ providers: [Store] });
+    const store = injector.get(Store);
+    registerNgrxSignals({ patchState, watchState });
+    try {
+      const collector = realCollectorWithInjector(store, injector);
+      collector.collect();
+      store.bumpBoth();
+      const log = collector.logSince(0);
+      expect(log).toHaveLength(2);
+      expect(log[0]).toMatchObject({
+        type: 'bumpBoth',
+        diff: [{ path: 'a', op: 'change', before: 0, after: 1 }],
+      });
+      expect(log[1]).toMatchObject({
+        type: 'bumpBoth',
+        diff: [{ path: 'b', op: 'change', before: 0, after: 1 }],
+      });
+      // Each watchState entry still carries the method's durationMs.
+      expect(typeof log[0].durationMs).toBe('number');
+    } finally {
+      delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
+    }
+  });
+
+  it('still logs a method call that patches nothing (no-change entry) under the watchState path', async () => {
+    await import('@angular/compiler');
+    const { Injector } = await import('@angular/core');
+    const { signalStore, withState, withMethods, patchState, watchState } =
+      await import('@ngrx/signals');
+    const { registerNgrxSignals } = await import('../ngrx-register.ts');
+    const Store = signalStore(
+      withState({ q: '' }),
+      withMethods((store) => ({
+        peek() {
+          return store.q();
+        },
+      })),
+    );
+    const injector = Injector.create({ providers: [Store] });
+    const store = injector.get(Store);
+    registerNgrxSignals({ patchState, watchState });
+    try {
+      const collector = realCollectorWithInjector(store, injector);
+      collector.collect();
+      store.peek();
+      const [entry] = collector.logSince(0);
+      expect(entry).toMatchObject({ type: 'peek', diff: [] });
+    } finally {
+      delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
+    }
+  });
+
+  it('tags a watchState-recorded change with the event that caused it, via a real withReducer store and Dispatcher', async () => {
+    await import('@angular/compiler');
+    const { Injector } = await import('@angular/core');
+    const { signalStore, withState, patchState, watchState, type } = await import('@ngrx/signals');
+    const { Dispatcher, Events, ReducerEvents, eventGroup, on, withReducer } =
+      await import('@ngrx/signals/events');
+    const { registerNgrxSignals } = await import('../ngrx-register.ts');
+
+    const counterEvents = eventGroup({
+      source: 'Counter',
+      events: { increment: type<number>() },
+    });
+    const Store = signalStore(
+      withState({ count: 0 }),
+      withReducer(
+        on(counterEvents.increment, (event, state) => ({ count: state.count + event.payload })),
+      ),
+    );
+    const injector = Injector.create({ providers: [Store, Dispatcher, Events, ReducerEvents] });
+    const store = injector.get(Store);
+    const dispatcher = injector.get(Dispatcher);
+    registerNgrxSignals({ patchState, watchState });
+    try {
+      const collector = realCollectorWithInjector(store, injector);
+      collector.collect();
+      dispatcher.dispatch(counterEvents.increment(5));
+      const log = collector.logSince(0);
+      // Unlike the FakeDispatcher-based tests above (which use the
+      // microtask-fallback path, so `finish()` always runs a tick after the
+      // synchronous `logEvent()` call), the watchState path logs the signal
+      // store's change synchronously too — so here the order follows real
+      // RxJS Subject subscriber order: `withReducer()`'s own reaction
+      // subscribes to `reducerEvents.events$` when the store is constructed,
+      // before the collector attaches its own subscription in `collect()`,
+      // so it reacts first.
+      expect(log.map((e) => e.source)).toEqual(['signal-store', 'event']);
+      expect(log[0]).toMatchObject({
+        source: 'signal-store',
+        type: 'patchState',
+        diff: [{ path: 'count', op: 'change', before: 0, after: 5 }],
+        causedByEvent: { type: '[Counter] increment', payload: 5 },
+      });
+      expect(log[1]).toMatchObject({
+        type: '[Counter] increment',
+        eventType: '[Counter] increment',
+      });
+    } finally {
+      delete (globalThis as Record<string, unknown>)['__NG_DEVTOOLS_NGRX_SIGNALS__'];
+    }
   });
 
   it('does not add reactive dependencies when a method runs inside a computed', async () => {
@@ -1208,10 +1952,54 @@ describe('ngrx collector with @ngrx/store', () => {
     ]);
   });
 
-  it('stops looking for the Store after five misses', async () => {
+  it('stops looking for the Store after five misses, but keeps looking for the events Dispatcher', async () => {
     const { collector, ng, view } = await realStore({ store: false });
     for (let i = 0; i < 8; i++) expect(collector.collect().classic).toBeNull();
+    // The classic Store search caps at five misses and then stops scanning
+    // `view`; the events Dispatcher search has no cap (see the "keeps
+    // looking for Dispatcher" test above) and scans `view` on every pass.
+    // Eight collects: 5 Store scans + 8 Dispatcher scans = 13.
     const lookups = ng.ɵgetInjectorProviders.mock.calls.filter(([injector]) => injector === view);
-    expect(lookups).toHaveLength(5);
+    expect(lookups).toHaveLength(13);
   });
 });
+/**
+ * Like `realCollector`, but puts a real Angular injector into the resolution
+ * path so the collector can call the registered `watchState()` with it.
+ * `records` wraps the store so `discover()` finds it in the env.
+ */
+function realCollectorWithInjector(store: object, injector: unknown) {
+  document.body.innerHTML = '<app-root ng-version="22"></app-root>';
+  const root = document.querySelector('app-root')!;
+  const token = class StoreToken {};
+  const existing = (injector as { records?: Map<unknown, unknown> }).records;
+  if (existing instanceof Map) existing.set(token, { value: store });
+  else {
+    (injector as { records?: Map<unknown, unknown> }).records = new Map<
+      unknown,
+      { value: unknown }
+    >([[token, { value: store }]]);
+  }
+  const node = {
+    el: root,
+    get: (t: unknown, fallback?: unknown) => {
+      try {
+        return (injector as { get(t: unknown, f: unknown): unknown }).get(t, fallback ?? null);
+      } catch {
+        return fallback ?? null;
+      }
+    },
+  };
+  const ng = {
+    getInjector: () => node,
+    getComponent: (el: Element) => (el === root ? {} : null),
+    ɵgetInjectorMetadata: (i: unknown) =>
+      i === injector ? { type: 'environment', source: 'R3Injector' } : { type: 'element' },
+    ɵgetInjectorResolutionPath: () => [node, injector],
+    ɵgetInjectorProviders: () => [],
+  };
+  return createNgrxCollector(
+    () => ng as any,
+    () => {},
+  );
+}

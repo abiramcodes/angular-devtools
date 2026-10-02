@@ -17,7 +17,7 @@ import {
   type NgrxUnrestorable,
   type NgrxUnrestorableUpdate,
 } from './ngrx-shared.ts';
-import { registeredPatchState } from './ngrx-register.ts';
+import { registeredPatchState, registeredWatchState } from './ngrx-register.ts';
 
 type AnyRecord = Record<PropertyKey, any>;
 
@@ -29,6 +29,19 @@ export interface NgrxDebugNg {
   ɵgetInjectorResolutionPath?(injector: unknown): unknown[];
 }
 
+/**
+ * Rolling call stats for one wrapped method. `totalDurationMs` is a running sum (not a
+ * history array, per the "keep pushes/state cheap" rule) divided by `calls` in `report()`
+ * to get `avgDurationMs`.
+ */
+interface MethodInfo {
+  calls: number;
+  timedCalls: number;
+  rx: boolean;
+  totalDurationMs: number;
+  lastDurationMs?: number;
+}
+
 interface Tracked {
   id: string;
   instance: object;
@@ -37,13 +50,34 @@ interface Tracked {
   className: string;
   scope: string;
   stateKeys: PropertyKey[];
-  methods: Map<string, { calls: number; rx: boolean }>;
+  methods: Map<string, MethodInfo>;
   references: Set<string>;
   writable: boolean;
   depth: number;
   pendingBefore: Record<PropertyKey, unknown> | null;
   lastNoop: Map<string, number>;
   undo: (() => void)[];
+  /**
+   * Injector resolved for this store at discovery, used to subscribe through
+   * `watchState()` when it is registered. `null` when the store is tracked
+   * from a path without an injector (e.g. the signalState tests that only
+   * stub `getInjector`).
+   */
+  injector: unknown;
+  /** True once `watchState()` is attached — then `onWrite` short-circuits. */
+  watched: boolean;
+  /**
+   * The last snapshot a watcher produced for this store. Each watchState
+   * callback diffs the live state against it and then replaces it, so every
+   * patchState call (even several in the same tick) ends up as its own entry.
+   */
+  lastWatched: Snapshot | null;
+  /**
+   * While a wrapped method call is on the stack, state writes from inside it
+   * get labeled with the method's name and args (and their duration folds into
+   * the method's rolling stats) instead of showing as a bare `patchState` entry.
+   */
+  methodStack: { name: string; args: unknown[]; startedAt: number; fired?: number }[];
 }
 
 interface Classic {
@@ -61,12 +95,17 @@ type Snapshot = Record<PropertyKey, unknown>;
 type Method = (this: unknown, ...args: unknown[]) => unknown;
 
 type Saved =
-  { kind: 'signal'; tracked: Tracked; after: Snapshot } | { kind: 'classic'; action: unknown };
+  | { kind: 'signal'; tracked: Tracked; after: Snapshot }
+  | { kind: 'classic'; action: unknown }
+  | { kind: 'event' };
 
 const MAX_LOG = 200;
 const MAX_DIFF = 50;
 const NOOP_GAP_MS = 1000;
 const SMALL = { depth: 4, maxKeys: 20, maxString: 300, budget: 400 };
+// Entity ids are typically short primitives; allow more of them through than SMALL
+// so `count` (from the raw array) and the sampled `ids` stay close for most stores.
+const ENTITY_IDS_SMALL = { depth: 1, maxKeys: 500, maxString: 200, budget: 3000 };
 
 function read<T>(fn: () => T, fallback: T): T {
   try {
@@ -74,6 +113,11 @@ function read<T>(fn: () => T, fallback: T): T {
   } catch {
     return fallback;
   }
+}
+
+/** Guards `performance.now()` the way this file guards every other page-provided API. */
+function now(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
 }
 
 function symbolNamed(value: unknown, name: string): symbol | undefined {
@@ -199,8 +243,32 @@ export function createNgrxCollector(
   let seq = 0;
   let classic: Classic | null = null;
   let classicMisses = 0;
+  let dispatcher: AnyRecord | null = null;
+  let dispatcherUndo: (() => void) | null = null;
+  // Tracks per-element cleanup for component-scoped Dispatcher instances.
+  // Released in discover() when the element is no longer present.
+  const componentDispatcherUndos = new Map<Element, () => void>();
+  const attachedDispatchers = new WeakSet<AnyRecord>();
   let lost: (NgrxUnrestorableUpdate & { at: number })[] = [];
   let lostSeq = 0;
+  // Correlates a store's next `finish()` call with the `@ngrx/signals/events` event
+  // whose synchronous `withReducer()` patchState caused it. Populated by the wrapped
+  // `dispatch()` (see `wrapDispatch`/`attachDispatcher`) and consumed once by `finish()`.
+  // Best effort: there is no way to recover which case reducer matched.
+  // Keyed by the Tracked's `instance` so garbage collection of a store that was
+  // never reconciled through `untrack()` (e.g. a page teardown that bypassed
+  // `discover()`) does not keep the entry alive.
+  const pendingEventByInstance = new WeakMap<object, { type: string; payload?: unknown }>();
+  // The event currently flowing through a wrapped `Dispatcher.dispatch()` call,
+  // if any. Set right before `original.apply()` runs and restored to its prior
+  // value right after (see `wrapDispatch`), so it is only ever "live" for the
+  // duration of that one synchronous call — including any `withReducer()` tap's
+  // `patchState()`, which (through `watchState()`) calls `appendChange()`
+  // synchronously from inside that same call. `appendChange()` reads this
+  // directly instead of `pendingEventByInstance`, which only gets populated via
+  // `pendingBefore` diffing — a mechanism `onWrite` skips for a watched store
+  // (see `t.watched`), so it would never catch a watchState-recorded change.
+  let currentDispatchedEvent: { type: string; payload?: unknown } | undefined;
 
   const append = (entry: Omit<NgrxLogEntry, 'seq'>, keep: Saved) => {
     const full = { ...entry, seq: ++seq };
@@ -224,14 +292,26 @@ export function createNgrxCollector(
     args: unknown[] | undefined,
     before: Snapshot,
     logNoop = false,
+    durationMs?: number,
   ) => {
     const after = snapshot(t);
     const changes = snapshotDiff(before, after, t.stateKeys);
+    // Clear the pending event correlation BEFORE the no-change early return.
+    // A `withReducer()` case that patches a value equal to the one already there
+    // produces no diff; leaving the entry would tag the next unrelated method
+    // call on this store with that stale event.
+    const causedByEvent = pendingEventByInstance.get(t.instance);
+    if (causedByEvent) pendingEventByInstance.delete(t.instance);
+    // Keep `lastWatched` in sync even for entries that did not come through
+    // `watchState()` (restore paths, the microtask fallback, the method-call
+    // noop entry). Otherwise the next real `watchState` firing would diff
+    // against stale state.
+    if (t.watched) t.lastWatched = after;
     if (!changes.length) {
       if (!logNoop) return;
-      const now = Date.now();
-      if (now - (t.lastNoop.get(type) ?? 0) < NOOP_GAP_MS) return;
-      t.lastNoop.set(type, now);
+      const noopAt = Date.now();
+      if (noopAt - (t.lastNoop.get(type) ?? 0) < NOOP_GAP_MS) return;
+      t.lastNoop.set(type, noopAt);
     }
     append(
       {
@@ -242,12 +322,20 @@ export function createNgrxCollector(
         timestamp: Date.now(),
         diff: changes,
         restorable: t.writable,
+        ...(causedByEvent ? { causedByEvent } : {}),
+        ...(durationMs !== undefined ? { durationMs } : {}),
       },
       { kind: 'signal', tracked: t, after },
     );
   };
 
   const onWrite = (t: Tracked) => {
+    // When a `watchState()` watcher is attached, every patchState (even
+    // several in the same tick) fires one callback synchronously inside
+    // `@ngrx/signals` after each one, so we rely on that for change entries
+    // and skip the microtask-batched fallback entirely. The fallback below
+    // is for apps that have not registered `watchState` via `registerNgrxSignals`.
+    if (t.watched) return;
     if (t.depth > 0 || t.pendingBefore) return;
     t.pendingBefore = snapshot(t);
     queueMicrotask(() => {
@@ -255,6 +343,85 @@ export function createNgrxCollector(
       t.pendingBefore = null;
       if (before) finish(t, 'patchState', undefined, before);
     });
+  };
+
+  /**
+   * Appends one `signal-store` entry per patchState call, picked up through
+   * `watchState()`. Dedicated to that path (not reused through `finish()`) so
+   * it stays small and so it does not trip the per-method noop throttle.
+   */
+  const appendChange = (
+    t: Tracked,
+    before: Snapshot,
+    call: Tracked['methodStack'][number] | undefined,
+  ) => {
+    const after = snapshot(t);
+    const changes = snapshotDiff(before, after, t.stateKeys);
+    // The watchState callback runs synchronously inside the dispatch that
+    // caused it (see `currentDispatchedEvent`), so check that first; fall
+    // back to `pendingEventByInstance` for a store that is not watched (the
+    // microtask-fallback path, where `finish()` runs after dispatch returns).
+    const causedByEvent = currentDispatchedEvent ?? pendingEventByInstance.get(t.instance);
+    if (!currentDispatchedEvent && causedByEvent) pendingEventByInstance.delete(t.instance);
+    if (!changes.length) return;
+    const type = call?.name ?? 'patchState';
+    const isRestore = /^Restore #\d+/.test(type);
+    const durationMs = call && !isRestore ? Math.round(now() - call.startedAt) : undefined;
+    append(
+      {
+        source: 'signal-store',
+        storeId: t.id,
+        type,
+        ...(call?.args?.length && !isRestore
+          ? { args: call.args.map((a) => serialize(a, SMALL)) }
+          : {}),
+        timestamp: Date.now(),
+        diff: changes,
+        restorable: t.writable,
+        ...(causedByEvent ? { causedByEvent } : {}),
+        ...(durationMs !== undefined ? { durationMs } : {}),
+      },
+      { kind: 'signal', tracked: t, after },
+    );
+    if (call) call.fired = (call.fired ?? 0) + 1;
+  };
+
+  /**
+   * Subscribes once through the registered `watchState` so every patchState
+   * call becomes its own log entry — including several in the same tick, which
+   * the microtask-batched fallback merges into one. Needs an injector and the
+   * `watchState` function; silently keeps the fallback when either is missing.
+   */
+  const attachWatcher = (t: Tracked) => {
+    if (t.watched) return;
+    const watchState = registeredWatchState();
+    if (!watchState || !t.injector) return;
+    const seed = snapshot(t);
+    let subscription: { destroy(): void } | null = null;
+    try {
+      subscription = watchState(
+        t.instance,
+        () => {
+          const before = t.lastWatched;
+          t.lastWatched = snapshot(t);
+          // The first callback runs synchronously on subscribe (`executeWatcher`
+          // in `@ngrx/signals`'s own `watchState`) and serves only to seed
+          // `lastWatched`. Every later firing is one patchState, which we turn
+          // into one entry.
+          if (!before) return;
+          const call = t.methodStack[t.methodStack.length - 1];
+          appendChange(t, before, call);
+        },
+        { injector: t.injector, manualCleanup: true },
+      );
+    } catch {
+      // watchState may throw when the "injector" we grabbed is a stub (e.g.
+      // tests) or lacks DestroyRef. The microtask fallback remains active.
+      return;
+    }
+    t.watched = true;
+    t.lastWatched = seed;
+    if (subscription) t.undo.push(() => read(() => subscription!.destroy(), undefined));
   };
 
   const wrapSignal = (t: Tracked, sig: AnyRecord) => {
@@ -277,19 +444,41 @@ export function createNgrxCollector(
   const wrapMethod = (t: Tracked, name: string) => {
     const instance = t.instance as AnyRecord;
     const original = instance[name];
-    const info = { calls: 0, rx: typeof original?.destroy === 'function' };
+    const info: MethodInfo = {
+      calls: 0,
+      timedCalls: 0,
+      rx: typeof original?.destroy === 'function',
+      totalDurationMs: 0,
+    };
     t.methods.set(name, info);
     const proxy = new Proxy(original, {
       apply(target, thisArg, args) {
         info.calls++;
         const outer = t.depth === 0;
         const before = outer ? snapshot(t) : null;
+        const frame = { name, args, startedAt: now(), fired: 0 };
+        t.methodStack.push(frame);
         t.depth++;
         try {
           return Reflect.apply(target, thisArg, args);
         } finally {
+          // Wall-clock time of the synchronous call only: for an rxMethod/effect-style
+          // member this is typically fast (it just starts a subscription), not how long
+          // any async work it queued takes. See `NgrxLogEntry.durationMs`.
+          const durationMs = Math.round(now() - frame.startedAt);
+          info.lastDurationMs = durationMs;
+          info.totalDurationMs += durationMs;
+          info.timedCalls++;
+          t.methodStack.pop();
           t.depth--;
-          if (before) finish(t, name, args, before, true);
+          // Microtask-fallback path: one entry per method call (with throttled noop).
+          if (before && !t.watched) finish(t, name, args, before, true, durationMs);
+          // watchState path: watchState already emitted one entry per patchState.
+          // If the method did not patch at all (e.g. `isSaved` just reads state),
+          // append a throttled noop entry so method calls stay visible.
+          if (outer && t.watched && !frame.fired) {
+            finish(t, name, args, t.lastWatched ?? snapshot(t), true, durationMs);
+          }
         }
       },
     });
@@ -304,15 +493,28 @@ export function createNgrxCollector(
     const t = tracked.get(value);
     if (!t) return;
     tracked.delete(value);
+    pendingEventByInstance.delete(t.instance);
     for (const fn of t.undo.splice(0).reverse()) fn();
   };
 
-  const track = (value: object, scope: string, found: Set<object>): Tracked | null => {
+  const track = (
+    value: object,
+    scope: string,
+    found: Set<object>,
+    injector: unknown = null,
+  ): Tracked | null => {
     const source = stateSourceOf(value);
     if (!source) return null;
     found.add(value);
     const existing = tracked.get(value);
-    if (existing) return existing;
+    if (existing) {
+      // Remember the first injector we saw: a store appears first in its env,
+      // then again as a component field reference, and we want the env's one
+      // (components come in and out, env stays).
+      if (!existing.injector && injector) existing.injector = injector;
+      attachWatcher(existing);
+      return existing;
+    }
     const stateKeys = Reflect.ownKeys(source);
     const t: Tracked = {
       id: idFor(value),
@@ -332,6 +534,10 @@ export function createNgrxCollector(
       pendingBefore: null,
       lastNoop: new Map(),
       undo: [],
+      injector,
+      watched: false,
+      lastWatched: null,
+      methodStack: [],
     };
     tracked.set(value, t);
     for (const key of stateKeys) wrapSignal(t, source[key]);
@@ -341,6 +547,7 @@ export function createNgrxCollector(
         if (typeof member === 'function' && !isSignal(member)) wrapMethod(t, key);
       }
     }
+    attachWatcher(t);
     return t;
   };
 
@@ -373,6 +580,125 @@ export function createNgrxCollector(
       }
     }
     return out['Store'] ? { parts: out, scope } : null;
+  };
+
+  // `Dispatcher` (from `@ngrx/signals/events`) is `providedIn: 'platform'`, resolved
+  // through the injector the same way `findClassic` resolves `Store`, but tracked
+  // separately: an app can use the events plugin without @ngrx/store's classic Store.
+  const findDispatcher = (
+    ng: NgrxDebugNg,
+    envs: Map<AnyRecord, string>,
+    rootInjector: unknown,
+  ): AnyRecord | null => {
+    for (const [env] of envs) {
+      const tokens = new Set<unknown>();
+      const records = read(() => env['records'] as Map<unknown, unknown> | undefined, undefined);
+      if (records instanceof Map) for (const token of records.keys()) tokens.add(token);
+      for (const p of read(() => ng.ɵgetInjectorProviders?.(env) ?? [], [])) tokens.add(p.token);
+      for (const token of tokens) {
+        if (stripped(token) !== 'Dispatcher') continue;
+        const from = (rootInjector ?? env) as AnyRecord;
+        const value = read(() => from['get'](token, null), null) as AnyRecord | null;
+        if (value && typeof value === 'object' && typeof value['dispatch'] === 'function') {
+          return value;
+        }
+      }
+    }
+    return null;
+  };
+
+  /** Serializes and appends a `source: 'event'` log entry. Called only from
+   * `reducerEvents.events$` (not `events.events$`), so each dispatch emits
+   * exactly one call here — no deduplication needed. Not restorable. */
+  const logEvent = (event: unknown) => {
+    const record = event && typeof event === 'object' ? (event as AnyRecord) : null;
+    const type = read(() => String(record?.['type'] ?? 'event'), 'event');
+    // Only attach `payload` when the event actually carries one. An event
+    // declared with no payload (e.g. `bookingEvents.cancelled` where the type
+    // is a plain string, no `type<>` wrapper, so the dispatched object has no
+    // `payload` key) would otherwise show up as `{"@type":"undefined"}` in the
+    // panel and the agent tool.
+    const hasPayload = !!record && 'payload' in record && record['payload'] !== undefined;
+    append(
+      {
+        source: 'event',
+        storeId: 'event',
+        type,
+        eventType: type,
+        ...(hasPayload ? { payload: serialize(record['payload'], SMALL) } : {}),
+        timestamp: Date.now(),
+        diff: [],
+        restorable: false,
+      },
+      { kind: 'event' },
+    );
+  };
+
+  /** Wraps `Dispatcher.dispatch()` itself to correlate a store's next change with the
+   * event that caused it, instead of relying on subscriber order against
+   * `ReducerEvents.events$` (racy: whichever of `withReducer()`'s own subscription and
+   * ours subscribed first runs first). By the time the wrapped `dispatch()` returns,
+   * every synchronous reaction — including any `withReducer()` tap's `patchState()` —
+   * has already run, so diffing which tracked stores are newly `pendingBefore` across
+   * the call identifies exactly what this dispatch caused: still best effort (which
+   * case reducer matched can't be recovered), but no longer order-dependent. Snapshotting
+   * the "before" set also avoids re-attributing a store that was already pending from an
+   * earlier, still-unresolved dispatch to this one. */
+  const wrapDispatch = (d: AnyRecord): (() => void) | undefined => {
+    const original = read(() => d['dispatch'], undefined) as
+      ((...args: unknown[]) => unknown) | undefined;
+    if (typeof original !== 'function') return undefined;
+    d['dispatch'] = function (this: unknown, ...args: unknown[]) {
+      const before = new Set<Tracked>();
+      for (const t of tracked.values()) if (t.pendingBefore) before.add(t);
+      const event = args[0];
+      const record = event && typeof event === 'object' ? (event as AnyRecord) : null;
+      const info = record
+        ? (() => {
+            const type = read(() => String(record['type'] ?? 'event'), 'event');
+            const hasPayload = 'payload' in record && record['payload'] !== undefined;
+            return hasPayload ? { type, payload: serialize(record['payload'], SMALL) } : { type };
+          })()
+        : undefined;
+      // Live only for this call (including any synchronous reaction it causes,
+      // like a `withReducer()` tap's `patchState()`). A nested dispatch — e.g.
+      // one event handler dispatching another — restores the outer event
+      // instead of leaving its own behind.
+      const previous = currentDispatchedEvent;
+      currentDispatchedEvent = info;
+      let result: unknown;
+      try {
+        result = original.apply(this, args);
+      } finally {
+        currentDispatchedEvent = previous;
+      }
+      if (info) {
+        for (const t of tracked.values()) {
+          if (t.pendingBefore && !before.has(t) && !pendingEventByInstance.has(t.instance)) {
+            pendingEventByInstance.set(t.instance, info);
+          }
+        }
+      }
+      return result;
+    };
+    return () => read(() => (d['dispatch'] = original), undefined);
+  };
+
+  const attachDispatcher = (d: AnyRecord): (() => void) => {
+    const reducerEvents$ = read(() => d['reducerEvents']?.['events$'], undefined);
+    const subs: AnyRecord[] = [];
+    if (reducerEvents$) {
+      const sub = read(
+        () => reducerEvents$['subscribe']((event: unknown) => logEvent(event)),
+        undefined,
+      );
+      if (sub) subs.push(sub);
+    }
+    const restoreDispatch = wrapDispatch(d);
+    return () => {
+      for (const sub of subs) read(() => sub['unsubscribe']?.(), undefined);
+      restoreDispatch?.();
+    };
   };
 
   const classicState = (store: AnyRecord) => {
@@ -465,7 +791,13 @@ export function createNgrxCollector(
     return typeof index === 'number' && Array.isArray(states) && index < states.length - 1;
   };
 
-  const wrapDispatch = (store: AnyRecord, origins: WeakMap<object, NgrxActionOrigin>) => {
+  /**
+   * Classic-store counterpart to {@link wrapDispatch} above: tags each dispatched
+   * action with where it came from (`dispatch` call, an `Effect` using `next`,
+   * or a `dispatch(() => action)` reactive form). Renamed from `wrapDispatch`
+   * so it no longer collides with the events-plugin wrapper of the same name.
+   */
+  const wrapClassicDispatch = (store: AnyRecord, origins: WeakMap<object, NgrxActionOrigin>) => {
     let active = true;
     let reactive: unknown;
     const tag = (action: unknown, origin: NgrxActionOrigin) => {
@@ -541,7 +873,7 @@ export function createNgrxCollector(
       origins: new WeakMap(),
       stop: () => {},
     };
-    const undo = wrapDispatch(store, c.origins);
+    const undo = wrapClassicDispatch(store, c.origins);
     const record = (action: unknown) => {
       const type = read(() => String((action as AnyRecord)['type'] ?? 'action'), 'action');
       logClassic(c, type, action, true);
@@ -603,7 +935,7 @@ export function createNgrxCollector(
       for (const record of read(() => [...records.values()], [] as (AnyRecord | undefined)[])) {
         const value = record?.['value'];
         if (value && (typeof value === 'object' || typeof value === 'function')) {
-          track(value, scope, found);
+          track(value, scope, found, env);
         }
       }
     }
@@ -611,33 +943,135 @@ export function createNgrxCollector(
     for (const { el, injector, component } of perElement) {
       const owner = component ? className(component.constructor) : el.tagName.toLowerCase();
       for (const p of read(() => ng.ɵgetInjectorProviders?.(injector) ?? [], [])) {
-        if (!/^SignalStore\d*$/.test(stripped(p.token))) continue;
-        const value = read(
-          () => (injector as AnyRecord)['get'](p.token, null, { self: true, optional: true }),
-          null,
-        );
-        if (value && typeof value === 'object') track(value, `${owner} (component)`, found);
+        const tname = stripped(p.token);
+        if (/^SignalStore\d*$/.test(tname)) {
+          const value = read(
+            () => (injector as AnyRecord)['get'](p.token, null, { self: true, optional: true }),
+            null,
+          );
+          if (value && typeof value === 'object') {
+            track(value, `${owner} (component)`, found, injector);
+          }
+        } else if (tname === 'Dispatcher') {
+          // A component can provide its own scoped Dispatcher via provideDispatcher().
+          // Resolve with self:true so we only get the one this component owns, not the
+          // platform-wide one (which findDispatcher already handles separately).
+          const value = read(
+            () => (injector as AnyRecord)['get'](p.token, null, { self: true, optional: true }),
+            null,
+          ) as AnyRecord | null;
+          if (
+            value &&
+            typeof value === 'object' &&
+            typeof value['dispatch'] === 'function' &&
+            !attachedDispatchers.has(value)
+          ) {
+            attachedDispatchers.add(value);
+            componentDispatcherUndos.set(el, attachDispatcher(value));
+          }
+        }
       }
     }
 
-    for (const { component } of perElement) {
+    for (const { injector, component } of perElement) {
       if (!component) continue;
       const owner = className(component.constructor);
       for (const key of read(() => Object.keys(component), [] as string[])) {
         const value = read(() => component[key], undefined);
         if (!value || (typeof value !== 'object' && typeof value !== 'function')) continue;
-        const t = track(value, `${owner} (field)`, found);
+        const t = track(value, `${owner} (field)`, found, injector);
         t?.references.add(`${owner}.${key}`);
       }
     }
 
     for (const key of [...tracked.keys()]) if (!found.has(key)) untrack(key);
 
+    // Release component-scoped Dispatcher subscriptions for destroyed elements.
+    const currentEls = new Set(perElement.map((p) => p.el));
+    for (const [el, undo] of [...componentDispatcherUndos.entries()]) {
+      if (!currentEls.has(el)) {
+        undo();
+        componentDispatcherUndos.delete(el);
+      }
+    }
+
     if (!classic && classicMisses < 5) {
       const found = findClassic(ng, envs, rootInjector);
       if (found) classic = attachClassic(found);
       else if (envs.size) classicMisses++;
     }
+
+    // `Dispatcher` is `providedIn: 'platform'`, so it only materializes once
+    // something injects it. In a demo like `/ -> /booking`, that may happen
+    // long after the initial discovery. Keep looking every pass instead of
+    // giving up after a few misses — the lookup is cheap (map and provider
+    // scan, no new work) and stops as soon as the Dispatcher appears.
+    if (!dispatcher) {
+      const found = findDispatcher(ng, envs, rootInjector);
+      if (found) {
+        dispatcher = found;
+        dispatcherUndo = attachDispatcher(found);
+      }
+    }
+  };
+
+  // `withEntities()` is literally `withState({ entityMap, ids })` (or
+  // `${collection}EntityMap`/`${collection}Ids`) plus a computed `entities` selector: it
+  // adds nothing our collector doesn't already track as plain state/computed. This finds
+  // those key pairs (by the same naming convention `withEntities` itself uses) and
+  // summarizes them; it never removes `entityMap`/`ids` from `state`. `selectedId` is not
+  // a real @ngrx/signals API, just a common app convention, so it's read best-effort.
+  const entitiesOf = (
+    t: Tracked,
+    computedKeys: ReadonlySet<string>,
+  ): NgrxSignalStoreInfo['entities'] => {
+    const stateNames = new Set(t.stateKeys.map(String));
+    const out: NonNullable<NgrxSignalStoreInfo['entities']> = [];
+    for (const key of t.stateKeys) {
+      const name = String(key);
+      let collection: string | undefined;
+      if (name === 'entityMap') collection = undefined;
+      else {
+        const match = /^(.+)EntityMap$/.exec(name);
+        if (!match) continue;
+        collection = match[1];
+      }
+      const idsKey = collection ? `${collection}Ids` : 'ids';
+      if (!stateNames.has(idsKey)) continue;
+      const idsRaw = read(() => peek(t.source[idsKey]), undefined);
+      if (!Array.isArray(idsRaw)) continue;
+      const entityMapRaw = read(() => peek(t.source[key]), undefined) as
+        Record<PropertyKey, unknown> | undefined;
+      const entitiesKey = collection ? `${collection}Entities` : 'entities';
+      const entry: NonNullable<NgrxSignalStoreInfo['entities']>[number] = {
+        ...(collection ? { collection } : {}),
+        idsKey,
+        entityMapKey: name,
+        ...(computedKeys.has(entitiesKey) ? { entitiesKey } : {}),
+        ids: read(() => serialize(idsRaw, ENTITY_IDS_SMALL), []) as (string | number)[],
+        count: idsRaw.length,
+      };
+      const selectedIdKey = collection ? `${collection}SelectedId` : 'selectedId';
+      if (stateNames.has(selectedIdKey)) {
+        const selectedId = read(() => peek(t.source[selectedIdKey]), undefined);
+        // `null` is the common "nothing selected yet" sentinel (e.g. `selectedId: string | null`);
+        // treat it the same as absent instead of resolving `entityMap[null]` to a bogus "Selected" row.
+        if (selectedId !== undefined && selectedId !== null) {
+          entry.selectedIdKey = selectedIdKey;
+          entry.selectedId = read(() => serialize(selectedId, SMALL), undefined);
+          // Only set `selected` when the id actually resolves to an entity. A stale/dangling
+          // id (removed from the collection but still referenced) leaves `selected` unset
+          // rather than a serialized "undefined" marker, so the panel can tell "no match" apart
+          // from a legitimate falsy entity value.
+          const match = entityMapRaw?.[selectedId as PropertyKey];
+          if (match !== undefined) {
+            entry.selected = read(() => serializeSlice(selectedIdKey, match), undefined);
+          }
+        }
+      }
+      out.push(entry);
+    }
+    return out.length ? out : undefined;
   };
 
   const report = () => {
@@ -662,6 +1096,8 @@ export function createNgrxCollector(
           );
         }
       }
+      const entities =
+        t.kind === 'signal-store' ? entitiesOf(t, new Set(Object.keys(computed))) : undefined;
       return {
         id: t.id,
         kind: t.kind,
@@ -670,10 +1106,15 @@ export function createNgrxCollector(
         stateKeys: t.stateKeys.map(String),
         state,
         computed,
+        ...(entities ? { entities } : {}),
         methods: [...t.methods].map(([name, info]) => ({
           name,
           calls: info.calls,
           ...(info.rx ? { rx: true } : {}),
+          ...(info.lastDurationMs !== undefined ? { lastDurationMs: info.lastDurationMs } : {}),
+          ...(info.timedCalls > 0
+            ? { avgDurationMs: Math.round(info.totalDurationMs / info.timedCalls) }
+            : {}),
         })),
         references: [...t.references].sort(),
         writable: t.writable,
@@ -778,6 +1219,9 @@ export function createNgrxCollector(
     }
     const entry = saved.get(request.seq);
     if (!entry) return { error: 'This change is no longer in the page history.' };
+    if (entry.kind === 'event') {
+      return { error: 'This is a dispatched event, not a state change, and cannot be restored.' };
+    }
     if (entry.kind === 'signal') {
       const t = entry.tracked;
       if (!tracked.has(t.instance)) return { error: 'This store no longer exists on the page.' };
@@ -788,6 +1232,11 @@ export function createNgrxCollector(
         if (entry.after[key] !== peek(t.source[key])) patch[key] = entry.after[key];
       }
       const patchState = t.kind === 'signal-store' ? registeredPatchState() : null;
+      const label = `Restore #${request.seq}`;
+      // Push a frame so the watchState callback labels its entry with the restore type
+      // instead of `patchState`, and so finish() below knows the call already fired.
+      const frame = { name: label, args: [] as unknown[], startedAt: now(), fired: 0 };
+      t.methodStack.push(frame);
       t.depth++;
       try {
         if (patchState) {
@@ -796,16 +1245,19 @@ export function createNgrxCollector(
           for (const key of Reflect.ownKeys(patch)) t.source[key].set(patch[key]);
         }
       } finally {
+        t.methodStack.pop();
         t.depth--;
       }
       if (patchState) {
-        finish(t, `Restore #${request.seq}`, undefined, before);
+        // When watchState is attached, appendChange already emitted one entry from
+        // inside patchState; skip finish to avoid a duplicate.
+        if (!t.watched) finish(t, label, undefined, before);
         return { ok: true, message: `Restored the state after change #${request.seq}.` };
       }
-      finish(t, `Restore #${request.seq} (watchState listeners not notified)`, undefined, before);
+      finish(t, `${label} (watchState listeners not notified)`, undefined, before);
       return {
         ok: true,
-        message: `Restored the state after change #${request.seq}. watchState listeners were not notified; call registerNgrxSignals({ patchState }) from @santoshyadavdev/ng-devtools/overlay in your app to have restore notify them.`,
+        message: `Restored the state after change #${request.seq}. Register watchState via registerNgrxSignals({ patchState, watchState }) to have watchState listeners run on restore.`,
       };
     }
     const c = classic;
@@ -853,6 +1305,9 @@ export function createNgrxCollector(
     run,
     stop: () => {
       classic?.stop();
+      dispatcherUndo?.();
+      for (const [, fn] of componentDispatcherUndos) fn();
+      componentDispatcherUndos.clear();
       for (const key of [...tracked.keys()]) untrack(key);
     },
   };

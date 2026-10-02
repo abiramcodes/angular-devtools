@@ -67,7 +67,7 @@ interface MenuItem {
           <button
             type="button"
             (click)="copyMarkdownAction($event)"
-            class="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 min-w-[7.5rem] hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
+            class="inline-flex items-center justify-center gap-1.5 px-2.5 py-1 min-w-30 hover:bg-zinc-100 dark:hover:bg-zinc-900 transition-colors"
             [attr.aria-label]="copied() ? 'Markdown copied' : 'Copy markdown to clipboard'"
           >
             <svg

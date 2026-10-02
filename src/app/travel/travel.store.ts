@@ -1,13 +1,19 @@
+import { addEntity, removeEntity, withEntities } from '@ngrx/signals/entities';
+import { eventGroup, on, withReducer } from '@ngrx/signals/events';
 import { isPlatformBrowser } from '@angular/common';
 import { PLATFORM_ID, computed, effect, inject } from '@angular/core';
 import {
   patchState,
+  signalMethod,
   signalStore,
+  type,
   withComputed,
   withHooks,
   withMethods,
   withState,
 } from '@ngrx/signals';
+import { rxMethod } from '@ngrx/signals/rxjs-interop';
+import { debounceTime, distinctUntilChanged, filter, pipe, tap } from 'rxjs';
 import { DESTINATIONS, type Destination, type Region } from './destination';
 
 export type SortOrder = 'popular' | 'price' | 'rating';
@@ -24,14 +30,29 @@ export interface Booking {
   total: number;
 }
 
+// Dispatched by the booking/trips pages through the platform-wide Dispatcher
+// (see @ngrx/signals/events) once a booking is made or cancelled. The
+// withReducer below reacts to them independently of book()/cancel() — that
+// decoupling is the whole point of the events plugin.
+export const bookingEvents = eventGroup({
+  source: 'Booking',
+  events: {
+    created: type<Booking>(),
+    cancelled: type<string>(),
+  },
+});
+
 interface TravelState {
   destinations: Destination[];
   query: string;
   region: Region | 'All';
   sort: SortOrder;
   saved: string[];
-  bookings: Booking[];
   nextBookingNumber: number;
+  bookingSelectedId: string | null;
+  bookingActivity: number;
+  recentQueries: string[];
+  lastViewedBookingAt: number | null;
 }
 
 const initialState: TravelState = {
@@ -40,8 +61,11 @@ const initialState: TravelState = {
   region: 'All',
   sort: 'popular',
   saved: [],
-  bookings: [],
   nextBookingNumber: 1041,
+  bookingSelectedId: null,
+  bookingActivity: 0,
+  recentQueries: [],
+  lastViewedBookingAt: null,
 };
 
 const SAVED_KEY = 'travel.saved';
@@ -58,7 +82,18 @@ function readSaved(): string[] {
 export const TravelStore = signalStore(
   { providedIn: 'root' },
   withState(initialState),
-  withComputed(({ destinations, query, region, sort, saved, bookings }) => ({
+  // Bookings live in a withEntities() collection (id -> Booking) instead of a
+  // plain array, purely so the devtools Signal Store inspector has a real
+  // entities example to show (ids, count, selected). `bookings` below stays a
+  // plain Booking[] computed so every consumer keeps working unchanged.
+  withEntities({ entity: type<Booking>(), collection: 'booking' }),
+  withReducer(
+    on(bookingEvents.created, bookingEvents.cancelled, (_, state) => ({
+      bookingActivity: state.bookingActivity + 1,
+    })),
+  ),
+  withComputed(({ destinations, query, region, sort, saved, bookingEntities }) => ({
+    bookings: computed(() => bookingEntities()),
     results: computed(() => {
       const text = query().trim().toLowerCase();
       const list = destinations().filter(
@@ -77,7 +112,7 @@ export const TravelStore = signalStore(
     savedDestinations: computed(() => destinations().filter((d) => saved().includes(d.id))),
     savedCount: computed(() => saved().length),
     upcomingTrips: computed(() =>
-      [...bookings()].sort((a, b) => a.startDate.localeCompare(b.startDate)),
+      [...bookingEntities()].sort((a, b) => a.startDate.localeCompare(b.startDate)),
     ),
   })),
   withMethods((store) => ({
@@ -106,9 +141,9 @@ export const TravelStore = signalStore(
         return null;
       }
       const created = { ...booking, id: `TRV-${store.nextBookingNumber()}` };
-      patchState(store, (state) => ({
+      patchState(store, addEntity(created, { collection: 'booking' }), (state) => ({
         nextBookingNumber: state.nextBookingNumber + 1,
-        bookings: [...state.bookings, created],
+        bookingSelectedId: created.id,
         destinations: state.destinations.map((d) =>
           d.id === booking.destinationId ? { ...d, seats: d.seats - booking.travelers } : d,
         ),
@@ -116,15 +151,30 @@ export const TravelStore = signalStore(
       return created;
     },
     cancel(bookingId: string): void {
-      const booking = store.bookings().find((b) => b.id === bookingId);
+      const booking = store['bookingEntityMap']()[bookingId];
       if (!booking) return;
-      patchState(store, (state) => ({
-        bookings: state.bookings.filter((b) => b.id !== bookingId),
+      patchState(store, removeEntity(bookingId, { collection: 'booking' }), (state) => ({
+        bookingSelectedId: state.bookingSelectedId === bookingId ? null : state.bookingSelectedId,
         destinations: state.destinations.map((d) =>
           d.id === booking.destinationId ? { ...d, seats: d.seats + booking.travelers } : d,
         ),
       }));
     },
+    trackSearch: rxMethod<string>(
+      pipe(
+        debounceTime(250),
+        filter((q) => q.trim().length > 0),
+        distinctUntilChanged(),
+        tap((q) =>
+          patchState(store, (state) => ({
+            recentQueries: [q, ...state.recentQueries.filter((prev) => prev !== q)].slice(0, 5),
+          })),
+        ),
+      ),
+    ),
+    trackSelection: signalMethod<string | null>((id) => {
+      if (id !== null) patchState(store, { lastViewedBookingAt: Date.now() });
+    }),
   })),
   withHooks({
     onInit(store) {

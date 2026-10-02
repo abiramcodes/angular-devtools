@@ -88,6 +88,13 @@ export interface SignalStoreMembers {
   hooks?: string[];
   entities?: string[];
   rxMethods?: string[];
+  /**
+   * Method names declared as `signalMethod(...)` inside `withMethods`.
+   * Separate from `rxMethods` because both attach a `.destroy` function to
+   * the returned callable, so the runtime cannot tell them apart — only the
+   * source scan can.
+   */
+  signalMethods?: string[];
 }
 
 const NGRX_PATTERNS: { pattern: RegExp; kind: NgrxStoreEntry['kind'] }[] = [
@@ -388,6 +395,10 @@ export function signalStoreMembers(
           'rxMethods',
           keys.filter((k) => /^\s*:\s*rxMethod\b/.test(k.value)).map((k) => k.key),
         );
+        add(
+          'signalMethods',
+          keys.filter((k) => /^\s*:\s*signalMethod\b/.test(k.value)).map((k) => k.key),
+        );
       }
     }
   }
@@ -399,6 +410,7 @@ const MEMBER_LABELS: [keyof SignalStoreMembers, string][] = [
   ['computed', 'computed'],
   ['methods', 'methods'],
   ['rxMethods', 'rxMethod'],
+  ['signalMethods', 'signalMethod'],
   ['props', 'props'],
   ['hooks', 'hooks'],
   ['entities', 'entities'],

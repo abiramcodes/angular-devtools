@@ -11,7 +11,9 @@ bootstrapApplication(App, appConfig)
         .then(() =>
           Promise.all([import('@santoshyadavdev/ng-devtools/overlay'), import('@ngrx/signals')]),
         )
-        .then(([devtools, { patchState }]) => devtools.registerNgrxSignals({ patchState }));
+        .then(([devtools, { patchState, watchState }]) =>
+          devtools.registerNgrxSignals({ patchState, watchState }),
+        );
     }
     return undefined;
   })
