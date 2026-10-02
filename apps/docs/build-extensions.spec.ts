@@ -3,6 +3,7 @@ import {getBuildExtensions} from './src/marked-extensions/index';
 import {ngmdCodeGroupExtension} from './src/marked-extensions/ngmd-code-group';
 import {ngmdCodeHighlightExtension} from './src/marked-extensions/ngmd-code-highlight';
 import {ngmdCodeImportExtension} from './src/marked-extensions/ngmd-code-import';
+import {describe, expect, it, vi} from 'vitest';
 
 function preprocess(extension: MarkedExtension, markdown: string): Promise<string> {
   return (extension.hooks!.preprocess as (markdown: string) => Promise<string>)(markdown);

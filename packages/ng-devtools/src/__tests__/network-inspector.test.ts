@@ -137,7 +137,6 @@ describe('NetworkInspector timeline notes', () => {
 describe('NetworkInspector rule form', () => {
   const form = (host: HTMLElement) => ({
     pattern: host.querySelector<HTMLInputElement>('.rule-form input:not([type])')!,
-    status: host.querySelector<HTMLInputElement>('.rule-form input[type="number"][max="599"]')!,
     delay: host.querySelector<HTMLInputElement>('.rule-form input[type="number"][max="10000"]')!,
     body: host.querySelector<HTMLTextAreaElement>('.rule-form textarea')!,
     submit: host.querySelector<HTMLButtonElement>('.rule-form button[type="submit"]')!,
@@ -146,8 +145,9 @@ describe('NetworkInspector rule form', () => {
 
   it('starts empty and only enables Add rule for a rule that changes something', () => {
     const f = form(mount());
+    const inspector = fixture.componentInstance;
     expect(f.pattern.value).toBe('');
-    expect(f.status.value).toBe('');
+    expect(inspector.draft().status).toBe('');
     expect(f.submit.disabled).toBe(true);
 
     typeInto(f.pattern, '/api/products');
@@ -156,16 +156,12 @@ describe('NetworkInspector rule form', () => {
 
     typeInto(f.delay, '3000');
     expect(f.submit.disabled).toBe(false);
-    expect(fixture.componentInstance.draftRule()).toEqual({
+    expect(inspector.draftRule()).toEqual({
       pattern: '/api/products',
       enabled: true,
       target: 'both',
       delayMs: 3000,
     });
-
-    typeInto(f.status, '42');
-    expect(f.submit.disabled).toBe(true);
-    expect(f.hint()).toBe('Set a status from 100 to 599.');
   });
 
   it('gives a body-only rule status 200', () => {
@@ -184,7 +180,8 @@ describe('NetworkInspector rule form', () => {
     const f = form(host);
     const inspector = fixture.componentInstance;
     typeInto(f.pattern, '/api/products');
-    typeInto(f.status, '500');
+    inspector.setDraft('status', '500');
+    fixture.detectChanges();
     inspector.setDraft('target', 'client');
     fixture.detectChanges();
     f.submit.focus();
@@ -198,7 +195,8 @@ describe('NetworkInspector rule form', () => {
     expect(document.activeElement).toBe(f.pattern);
 
     typeInto(f.pattern, '/api/cart');
-    typeInto(f.status, '503');
+    inspector.setDraft('status', '503');
+    fixture.detectChanges();
     f.submit.click();
     await fixture.whenStable();
     expect(inspector.message()).toBe('Rule added. Reload the page to apply it to SSR.');
@@ -218,7 +216,8 @@ describe('NetworkInspector rule form', () => {
     );
     const f = form(host);
     typeInto(f.pattern, '/api/products');
-    typeInto(f.status, '500');
+    inspector.setDraft('status', '500');
+    fixture.detectChanges();
     expect(f.submit.disabled).toBe(true);
     expect(f.hint()).toBe('You can add up to 50 rules. Remove one to add another.');
   });

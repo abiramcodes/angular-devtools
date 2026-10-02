@@ -155,7 +155,7 @@ export const serverRoutes: ServerRoute[] = [
     <strong>SSR + client</strong>, <strong>SSR only</strong> or <strong>Client only</strong>.
   </ngmd-step>
   <ngmd-step title="Set the response">
-    Set a status (for example <code>500</code>), a delay, or a mock JSON body. Click <strong>Add rule</strong>.
+    Pick a status (for example <strong>500 Internal Server Error</strong>), a delay, or a mock JSON body. Click <strong>Add rule</strong>.
   </ngmd-step>
   <ngmd-step title="Reload">
     SSR rules apply from the next page load. Client rules apply right away.

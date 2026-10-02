@@ -111,7 +111,7 @@ The interceptor works in development builds only. In production it passes reques
 
 <ngmd-workflow>
   <ngmd-step title="Add a rule">
-    Enter the URL pattern, pick <strong>Client only</strong>, and set the status to <code>500</code>. Click <strong>Add rule</strong>.
+    Enter the URL pattern, pick <strong>Client only</strong>, and pick <strong>500 Internal Server Error</strong> as the status. Click <strong>Add rule</strong>.
   </ngmd-step>
   <ngmd-step title="Use the page">
     Trigger the request. The row is marked <strong>faulted</strong>.
