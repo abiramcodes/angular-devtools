@@ -4,7 +4,7 @@ The devtools panel (`app/`) is a dense tool that people keep open next to their 
 
 ## Theme
 
-The panel supports dark and light. The active theme is driven by `data-theme` on `<html>` (set by the Chrome extension integration) or by `prefers-color-scheme` when no explicit override is present.
+The panel supports dark and light. `data-theme` on `<html>` picks the theme when the Chrome extension, the hub or a `?theme=` parameter sets it; otherwise the panel follows `prefers-color-scheme`.
 
 The palette lives in `app/src/styles/_palette.scss` and becomes CSS variables in `_theme.scss`. Change the brand in one place, `app/src/styles/main.scss`:
 
@@ -14,7 +14,7 @@ The palette lives in `app/src/styles/_palette.scss` and becomes CSS variables in
 );
 ```
 
-Accents available: `amber` (default), `ember`, `gold`. Add one by extending `$accents` in `_palette.scss`.
+Accents available: `amber` (default), `ember`, `gold`. Add one by extending `$accents` in `_palette.scss`, with a `light` map (`base`, `hover`, `ink`) whose `base` passes 4.5:1 on `--surface-3` in the light theme. Light neutrals and status colors are `$neutrals-light` and `$status-light`.
 
 Always use the variables, never hex values:
 
@@ -31,11 +31,11 @@ Always use the variables, never hex values:
 | `--control-h`                                     | 34px, the height of every input, select and button                      |
 | `--ease`, `--font-mono`                           | Motion curve, code and tokens                                           |
 
-Brand colors belong only to the brand they represent: NgRx keeps its purple on the NgRx view, the Angular view uses the Angular gradient for its logo and title, and Analog, NativeScript and Capacitor use their own colors on their pages. Everything else is amber.
+Brand colors belong only to the brand they represent: NgRx keeps its purple on the NgRx view, the Angular view uses the Angular gradient for its logo and title, and Analog, NativeScript and Capacitor use their own colors on their pages. Each one has a darker light-theme value (`VIEW_ACCENT_LIGHT` in `app/src/app.ts`). Everything else is amber.
 
 ## Shared building blocks
 
-- **SCSS mixins** in `app/src/styles/_mixins.scss`, used with `@use 'mixins' as m;` in component styles: `m.focus-ring($offset)`, `m.field-focus`, `m.panel($level)`, `m.label`, `m.soft($color)`, `m.truncate`, `m.enter($duration)`.
+- **SCSS mixins** in `app/src/styles/_mixins.scss`, used with `@use 'mixins' as m;` in component styles: `m.focus-ring($offset)`, `m.field-focus`, `m.panel($level)`, `m.label`, `m.soft($color)`, `m.truncate`, `m.enter($duration)`, and `m.light` for a light-theme override of a page-only color (it covers both `data-theme='light'` and the system preference).
 - **Dropdown**: `app/src/ui/select.ts` (`<app-select [options] [(value)] ariaLabel|labelledBy>`). Never use a native `<select>`; the system popup ignores the theme.
 - **Tab icons**: `app/src/pages/tab-icon.ts`, Lucide-style 24px strokes. Add a case when you add a tab.
 - **Global baselines** in `_base.scss`: tabular numbers, textarea sizing, focus fallback, reduced motion.

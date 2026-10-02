@@ -1046,18 +1046,16 @@ function walk(routes: AnalogRoute[], depth = 0, out: { route: AnalogRoute; depth
     }
   `,
   styles: `
+    @use 'mixins' as m;
+
     :host {
       --good: var(--ok);
       --bad: var(--danger);
       --info: #60a5fa;
-    }
-    @media (prefers-color-scheme: light) {
-      :host {
+
+      @include m.light {
         --info: #1d4ed8;
       }
-    }
-    :root[data-theme='light'] :host {
-      --info: #1d4ed8;
     }
     :host {
       --mono: var(--font-mono);
@@ -1607,60 +1605,125 @@ function walk(routes: AnalogRoute[], depth = 0, out: { route: AnalogRoute; depth
     }
     .pill.live {
       border-color: var(--accent-line);
-      background: var(--accent-soft);
+      background: color-mix(in srgb, var(--accent) 12%, var(--surface));
       color: var(--accent);
     }
     .pill[data-kind='layout'] {
       border-color: #94a3b8;
       color: #e2e8f0;
+
+      @include m.light {
+        border-color: #64748b;
+        color: #475569;
+      }
     }
     .pill[data-kind='markdown'] {
       border-color: #0ea5e9;
       color: #bae6fd;
+
+      @include m.light {
+        border-color: #0284c7;
+        color: #0369a1;
+      }
     }
     .pill[data-kind='load'] {
       border-color: #2dd4bf;
       color: #99f6e4;
+
+      @include m.light {
+        border-color: #0d9488;
+        color: #0f766e;
+      }
     }
     .pill[data-mode='ssr'] {
       border-color: #3b82f6;
       color: #bfdbfe;
+
+      @include m.light {
+        border-color: #2563eb;
+        color: #1d4ed8;
+      }
     }
     .pill[data-mode='ssg'] {
       border-color: #22c55e;
       color: #bbf7d0;
+
+      @include m.light {
+        border-color: #16a34a;
+        color: #166534;
+      }
     }
     .pill[data-mode='client'] {
       border-color: #eab308;
       color: #fef08a;
+
+      @include m.light {
+        border-color: #92400e;
+        color: #713f12;
+      }
     }
     .pill[data-mode='cached'] {
       border-color: #a855f7;
       color: #e9d5ff;
+
+      @include m.light {
+        border-color: #9333ea;
+        color: #7e22ce;
+      }
     }
     .pill[data-mode='redirect'] {
       border-color: #94a3b8;
       color: #e2e8f0;
+
+      @include m.light {
+        border-color: #64748b;
+        color: #475569;
+      }
     }
     .pill[data-call='page'] {
       border-color: #3b82f6;
       color: #bfdbfe;
+
+      @include m.light {
+        border-color: #2563eb;
+        color: #1d4ed8;
+      }
     }
     .pill[data-call='load'] {
       border-color: #2dd4bf;
       color: #99f6e4;
+
+      @include m.light {
+        border-color: #0d9488;
+        color: #0f766e;
+      }
     }
     .pill[data-call='fn'] {
       border-color: #14b8a6;
       color: #99f6e4;
+
+      @include m.light {
+        border-color: #0d9488;
+        color: #0f766e;
+      }
     }
     .pill[data-call='api'] {
       border-color: #f97316;
       color: #fed7aa;
+
+      @include m.light {
+        border-color: #c2410c;
+        color: #9a3412;
+      }
     }
     .pill[data-call='action'] {
       border-color: #ec4899;
       color: #fbcfe8;
+
+      @include m.light {
+        border-color: #db2777;
+        color: #9d174d;
+      }
     }
     [data-tone='good'].pill {
       border-color: color-mix(in srgb, var(--ok) 30%, transparent);
@@ -1683,124 +1746,10 @@ function walk(routes: AnalogRoute[], depth = 0, out: { route: AnalogRoute; depth
       border-color: color-mix(in srgb, var(--info) 30%, transparent);
       background: color-mix(in srgb, var(--info) 12%, transparent);
       color: #bfdbfe;
-    }
-    @media (prefers-color-scheme: light) {
-      :root:not([data-theme='dark']) :host .pill[data-kind='layout'],
-      :root:not([data-theme='dark']) :host .pill[data-mode='redirect'] {
-        border-color: #64748b;
-        color: #475569;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-kind='markdown'] {
-        border-color: #0284c7;
-        color: #0369a1;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-kind='load'],
-      :root:not([data-theme='dark']) :host .pill[data-call='load'],
-      :root:not([data-theme='dark']) :host .pill[data-call='fn'] {
-        border-color: #0d9488;
-        color: #0f766e;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-mode='ssr'],
-      :root:not([data-theme='dark']) :host .pill[data-call='page'] {
-        border-color: #2563eb;
-        color: #1d4ed8;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-mode='ssg'] {
-        border-color: #16a34a;
-        color: #15803d;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-mode='client'] {
-        border-color: #92400e;
-        color: #713f12;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-mode='cached'] {
-        border-color: #9333ea;
-        color: #7e22ce;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-call='api'] {
-        border-color: #c2410c;
-        color: #9a3412;
-      }
-      :root:not([data-theme='dark']) :host .pill[data-call='action'] {
-        border-color: #db2777;
-        color: #9d174d;
-      }
-      :root:not([data-theme='dark']) :host [data-tone='info'].pill {
+
+      @include m.light {
         color: var(--info);
       }
-      :root:not([data-theme='dark']) :host .method[data-method='GET'] {
-        border-color: color-mix(in srgb, #0369a1 30%, transparent);
-        background: color-mix(in srgb, #0369a1 8%, transparent);
-        color: #0369a1;
-      }
-      :root:not([data-theme='dark']) :host .method[data-method='POST'] {
-        color: var(--ok);
-      }
-      :root:not([data-theme='dark']) :host .method[data-method='PUT'],
-      :root:not([data-theme='dark']) :host .method[data-method='PATCH'] {
-        color: var(--warn);
-      }
-      :root:not([data-theme='dark']) :host .method[data-method='DELETE'] {
-        color: var(--danger);
-      }
-    }
-    :root[data-theme='light'] :host .pill[data-kind='layout'],
-    :root[data-theme='light'] :host .pill[data-mode='redirect'] {
-      border-color: #64748b;
-      color: #475569;
-    }
-    :root[data-theme='light'] :host .pill[data-kind='markdown'] {
-      border-color: #0284c7;
-      color: #0369a1;
-    }
-    :root[data-theme='light'] :host .pill[data-kind='load'],
-    :root[data-theme='light'] :host .pill[data-call='load'],
-    :root[data-theme='light'] :host .pill[data-call='fn'] {
-      border-color: #0d9488;
-      color: #0f766e;
-    }
-    :root[data-theme='light'] :host .pill[data-mode='ssr'],
-    :root[data-theme='light'] :host .pill[data-call='page'] {
-      border-color: #2563eb;
-      color: #1d4ed8;
-    }
-    :root[data-theme='light'] :host .pill[data-mode='ssg'] {
-      border-color: #16a34a;
-      color: #15803d;
-    }
-    :root[data-theme='light'] :host .pill[data-mode='client'] {
-      border-color: #92400e;
-      color: #713f12;
-    }
-    :root[data-theme='light'] :host .pill[data-mode='cached'] {
-      border-color: #9333ea;
-      color: #7e22ce;
-    }
-    :root[data-theme='light'] :host .pill[data-call='api'] {
-      border-color: #c2410c;
-      color: #9a3412;
-    }
-    :root[data-theme='light'] :host .pill[data-call='action'] {
-      border-color: #db2777;
-      color: #9d174d;
-    }
-    :root[data-theme='light'] :host [data-tone='info'].pill {
-      color: var(--info);
-    }
-    :root[data-theme='light'] :host .method[data-method='GET'] {
-      border-color: color-mix(in srgb, #0369a1 30%, transparent);
-      background: color-mix(in srgb, #0369a1 8%, transparent);
-      color: #0369a1;
-    }
-    :root[data-theme='light'] :host .method[data-method='POST'] {
-      color: var(--ok);
-    }
-    :root[data-theme='light'] :host .method[data-method='PUT'],
-    :root[data-theme='light'] :host .method[data-method='PATCH'] {
-      color: var(--warn);
-    }
-    :root[data-theme='light'] :host .method[data-method='DELETE'] {
-      color: var(--danger);
     }
 
     .status {
@@ -1838,22 +1787,40 @@ function walk(routes: AnalogRoute[], depth = 0, out: { route: AnalogRoute; depth
       border-color: color-mix(in srgb, #7dd3fc 30%, transparent);
       background: color-mix(in srgb, #7dd3fc 12%, transparent);
       color: #7dd3fc;
+
+      @include m.light {
+        border-color: color-mix(in srgb, #0369a1 30%, transparent);
+        background: color-mix(in srgb, #0369a1 8%, transparent);
+        color: #0369a1;
+      }
     }
     .method[data-method='POST'] {
       border-color: color-mix(in srgb, var(--ok) 30%, transparent);
       background: color-mix(in srgb, var(--ok) 12%, transparent);
       color: #86efac;
+
+      @include m.light {
+        color: var(--ok);
+      }
     }
     .method[data-method='PUT'],
     .method[data-method='PATCH'] {
       border-color: color-mix(in srgb, var(--warn) 30%, transparent);
       background: color-mix(in srgb, var(--warn) 12%, transparent);
       color: #fde68a;
+
+      @include m.light {
+        color: var(--warn);
+      }
     }
     .method[data-method='DELETE'] {
       border-color: color-mix(in srgb, var(--danger) 30%, transparent);
       background: color-mix(in srgb, var(--danger) 12%, transparent);
       color: #fecaca;
+
+      @include m.light {
+        color: var(--danger);
+      }
     }
     .request {
       min-width: 260px;

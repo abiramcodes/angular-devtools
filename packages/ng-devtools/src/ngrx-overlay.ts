@@ -1,3 +1,4 @@
+import { documentTree, type HostTree } from './host-tree.ts';
 import { createNgrxCollector, type NgrxDebugNg } from './ngrx-collector.ts';
 import type { NgrxPageReport, NgrxRequest } from './ngrx-shared.ts';
 
@@ -16,11 +17,17 @@ interface RpcScope {
 
 const HEARTBEAT_MS = 5000;
 
-export function attachNgrx(
+export interface NgrxPageOptions<H extends object> {
+  tree?: HostTree<H>;
+  describe?: () => { url: string; title: string };
+}
+
+export function attachNgrx<H extends object = Element>(
   my: RpcScope,
   pageId: string,
-  getNg: () => NgrxDebugNg | undefined,
+  getNg: () => NgrxDebugNg<H> | undefined,
   maxLog?: number,
+  options: NgrxPageOptions<H> = {},
 ) {
   const session = Math.random().toString(36).slice(2, 10);
   let sentSeq = 0;
@@ -41,7 +48,12 @@ export function attachNgrx(
     }, 50);
   };
 
-  const collector = createNgrxCollector(getNg, () => schedule(), document, maxLog);
+  const collector = createNgrxCollector(
+    getNg,
+    () => schedule(),
+    options.tree ?? documentTree<H>(),
+    maxLog,
+  );
 
   const push = async (rediscover = true) => {
     if (pushing) return schedule(rediscover);
@@ -56,11 +68,14 @@ export function attachNgrx(
       if (quiet && body === lastBody && Date.now() - lastPushAt < HEARTBEAT_MS) return;
       lastBody = body;
       lastPushAt = Date.now();
+      const page = options.describe?.() ?? {
+        url: location.pathname + location.search,
+        title: document.title,
+      };
       const report: NgrxPageReport = {
         pageId,
         session,
-        url: location.pathname + location.search,
-        title: document.title,
+        ...page,
         stores,
         classic,
         log,

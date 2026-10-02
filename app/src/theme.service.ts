@@ -1,40 +1,42 @@
-import { DestroyRef, Injectable, effect, inject, signal } from '@angular/core';
+import { DestroyRef, Service, effect, inject, signal } from '@angular/core';
 
-type Theme = 'dark' | 'light';
+export type Theme = 'dark' | 'light';
 
-@Injectable({ providedIn: 'root' })
+@Service()
 export class ThemeService {
   readonly current = signal<Theme>('dark');
 
   constructor() {
-    const attr = document.documentElement.dataset.theme;
+    const destroyRef = inject(DestroyRef);
+    const colorRoot = getHubColorRoot();
+    const attr = document.documentElement.dataset['theme'];
+    let pinned = attr === 'light' || attr === 'dark';
+
     if (attr === 'light' || attr === 'dark') {
       this.current.set(attr);
+    } else if (colorRoot) {
+      pinned = true;
+      this.apply(hubTheme(colorRoot));
     } else {
-      // Hub path: read from .devframes-color-root class when no explicit ?theme= param
-      const hubTheme = readHubTheme();
-      if (hubTheme) {
-        this.current.set(hubTheme);
-        document.documentElement.dataset.theme = hubTheme;
-      } else {
-        try {
-          if (window.matchMedia('(prefers-color-scheme: light)').matches) {
-            this.current.set('light');
-          }
-        } catch {
-          // environments without matchMedia (e.g. jsdom): default to dark
-        }
+      const query = prefersLight();
+      if (query) {
+        this.current.set(query.matches ? 'light' : 'dark');
+        const onChange = (e: MediaQueryListEvent) => {
+          if (!pinned) this.current.set(e.matches ? 'light' : 'dark');
+        };
+        query.addEventListener('change', onChange);
+        destroyRef.onDestroy(() => query.removeEventListener('change', onChange));
       }
     }
 
-    let bc: BroadcastChannel | undefined;
+    let channel: BroadcastChannel | undefined;
     try {
-      bc = new BroadcastChannel('ng-devtools:theme');
+      channel = new BroadcastChannel('ng-devtools:theme');
     } catch {}
     effect(() => {
       const theme = this.current();
       try {
-        bc?.postMessage(theme);
+        channel?.postMessage(theme);
       } catch {}
       try {
         let w: Window = window;
@@ -45,44 +47,44 @@ export class ThemeService {
       } catch {}
     });
 
-    // Chrome extension: live theme changes via postMessage
-    const handler = (e: MessageEvent) => {
+    const onMessage = (e: MessageEvent) => {
       if (e.source !== window.parent) return;
       const msg = e.data as { type?: unknown; theme?: unknown } | null;
       if (msg?.type !== 'ng-devtools:theme-change') return;
-      const t: Theme = msg.theme === 'dark' ? 'dark' : 'light';
-      this.current.set(t);
-      document.documentElement.dataset.theme = t;
+      pinned = true;
+      this.apply(msg.theme === 'dark' ? 'dark' : 'light');
     };
-    window.addEventListener('message', handler);
+    window.addEventListener('message', onMessage);
 
-    // Hub path: watch .devframes-color-root class for live color mode changes
-    const colorRoot = getHubColorRoot();
-    let observer: MutationObserver | null = null;
+    let observer: MutationObserver | undefined;
     if (colorRoot) {
-      observer = new MutationObserver(() => {
-        const t: Theme = colorRoot.classList.contains('dark') ? 'dark' : 'light';
-        this.current.set(t);
-        document.documentElement.dataset.theme = t;
-      });
+      observer = new MutationObserver(() => this.apply(hubTheme(colorRoot)));
       observer.observe(colorRoot, { attributes: true, attributeFilter: ['class'] });
     }
 
-    inject(DestroyRef).onDestroy(() => {
-      window.removeEventListener('message', handler);
+    destroyRef.onDestroy(() => {
+      window.removeEventListener('message', onMessage);
       observer?.disconnect();
+      channel?.close();
     });
+  }
+
+  private apply(theme: Theme) {
+    this.current.set(theme);
+    document.documentElement.dataset['theme'] = theme;
   }
 }
 
-function readHubTheme(): Theme | null {
+function prefersLight(): MediaQueryList | null {
   try {
-    const el = window.frameElement?.closest('.devframes-color-root');
-    if (!el) return null;
-    return el.classList.contains('dark') ? 'dark' : 'light';
+    return window.matchMedia?.('(prefers-color-scheme: light)') ?? null;
   } catch {
     return null;
   }
+}
+
+function hubTheme(colorRoot: Element): Theme {
+  return colorRoot.classList.contains('dark') ? 'dark' : 'light';
 }
 
 function getHubColorRoot(): Element | null {

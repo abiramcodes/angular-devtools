@@ -1124,16 +1124,10 @@ function countFields(node: FormFieldNode): number {
     .errors code {
       color: #fde68a;
       overflow-wrap: anywhere;
-    }
-    @media (prefers-color-scheme: light) {
-      :root:not([data-theme='dark']) :host .value code,
-      :root:not([data-theme='dark']) :host .errors code {
+
+      @include m.light {
         color: var(--accent);
       }
-    }
-    :root[data-theme='light'] :host .value code,
-    :root[data-theme='light'] :host .errors code {
-      color: var(--accent);
     }
     .value .muted {
       margin-top: 2px;

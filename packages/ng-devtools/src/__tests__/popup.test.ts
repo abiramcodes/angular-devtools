@@ -381,57 +381,36 @@ describe.sequential('devtools popup', () => {
   });
 
   describe('theme sync', () => {
-    it('persists the detected theme and restores it on the next open', async () => {
-      await loadPopup(true);
-      const doc = await frameDocument();
-      doc.documentElement.dataset['theme'] = 'light';
+    const root = () => document.getElementById('ng-devtools-popup-root')!;
+    const send = (data: unknown, source: MessageEventSource | null = frame().contentWindow) =>
+      window.dispatchEvent(new MessageEvent('message', { data, source }));
 
-      await vi.waitFor(() =>
-        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
-      );
+    it('follows the theme the panel posts and restores it on the next open', async () => {
+      await loadPopup(true);
+      send({ type: 'ng-devtools:theme-change', theme: 'light' });
+
+      expect(root().dataset['theme']).toBe('light');
       expect(stored().theme).toBe('light');
 
-      // Reload — saved theme is applied immediately without waiting for iframe
       await loadPopup(true);
-      expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light');
+      expect(root().dataset['theme']).toBe('light');
     });
 
-    it('detects theme from the hub color-root class', async () => {
+    it('pins dark when the panel switches back, so a light system does not win', async () => {
       await loadPopup(true);
-      const doc = await frameDocument();
-      const colorRoot = doc.createElement('div');
-      colorRoot.classList.add('devframes-color-root', 'light');
-      doc.body.appendChild(colorRoot);
+      send({ type: 'ng-devtools:theme-change', theme: 'light' });
+      send({ type: 'ng-devtools:theme-change', theme: 'dark' });
 
-      await vi.waitFor(() =>
-        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
-      );
-    });
-
-    it('detects theme from the hub color-scheme style', async () => {
-      await loadPopup(true);
-      const doc = await frameDocument();
-      doc.documentElement.style.colorScheme = 'light';
-
-      await vi.waitFor(() =>
-        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
-      );
-    });
-
-    it('removes popup light theme when panel switches back to dark', async () => {
-      await loadPopup(true);
-      const doc = await frameDocument();
-      doc.documentElement.dataset['theme'] = 'light';
-
-      await vi.waitFor(() =>
-        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBe('light'),
-      );
-
-      doc.documentElement.dataset['theme'] = 'dark';
-      await vi.waitFor(() =>
-        expect(document.getElementById('ng-devtools-popup-root')!.dataset['theme']).toBeUndefined(),
-      );
+      expect(root().dataset['theme']).toBe('dark');
       expect(stored().theme).toBe('dark');
+    });
+
+    it('ignores its own window and other message types', async () => {
+      await loadPopup(true);
+      send({ type: 'ng-devtools:theme-change', theme: 'light' }, window);
+      send({ type: 'other', theme: 'light' });
+
+      expect(root().dataset['theme']).toBeUndefined();
     });
   });
 });

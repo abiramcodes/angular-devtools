@@ -181,6 +181,7 @@ const config: NgmdConfig = {
         {label: 'Popup and hub', href: '/getting-started/popup-and-hub', status: 'new'},
         {label: 'Browser overlay', href: '/getting-started/overlay', status: 'updated'},
         {label: 'Chrome extension', href: '/getting-started/chrome-extension'},
+        {label: 'Angular Native', href: '/getting-started/angular-native', status: 'new'},
       ],
     },
     {
@@ -212,6 +213,7 @@ const config: NgmdConfig = {
         {label: 'Restore NgRx signal state', href: '/guides/ngrx-signals-restore'},
         {label: 'Set up SSR & HTTP', href: '/guides/ssr-http'},
         {label: 'Set up Analog', href: '/guides/analog'},
+        {label: 'Set up NativeScript', href: '/guides/nativescript'},
       ],
     },
     {

@@ -286,7 +286,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       --_fab-open: #3f3f46;
     }
     @media (prefers-color-scheme: light) {
-      :host {
+      :host(:not([data-theme='dark'])) {
         --_bg:       #ffffff;
         --_surface:  #f4f4f6;
         --_border:   #e2e2e7;
@@ -296,7 +296,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
         --_hover-bg: #e8e8ec;
         --_hover-fg: #18181b;
         --_shadow:   0 4px 24px rgba(0,0,0,0.1);
-        --_accent:   var(--ng-devtools-title, #c2410c);
+        --_accent:   var(--ng-devtools-title, #92400e);
         --_fab-open: #e4e4e7;
       }
     }
@@ -310,7 +310,7 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
       --_hover-bg: #e8e8ec;
       --_hover-fg: #18181b;
       --_shadow:   0 4px 24px rgba(0,0,0,0.1);
-      --_accent:   var(--ng-devtools-title, #c2410c);
+      --_accent:   var(--ng-devtools-title, #92400e);
       --_fab-open: #e4e4e7;
     }
     .fab {
@@ -801,94 +801,15 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
     saveState(state);
   });
 
-  // Sync popup chrome theme to the panel inside the iframe.
   const applyPopupTheme = (theme: unknown) => {
     const t = theme === 'light' ? 'light' : 'dark';
-    if (t === 'light') {
-      popupRoot!.dataset['theme'] = 'light';
-    } else {
-      delete popupRoot!.dataset['theme'];
-    }
+    popupRoot!.dataset['theme'] = t;
     if (state.theme !== t) {
       state.theme = t;
       saveState(state);
     }
   };
-
-  // Apply persisted theme immediately to prevent a dark flash.
-  if (state.theme === 'light') popupRoot.dataset['theme'] = 'light';
-
-  // Walk nested same-origin iframes to detect the current theme from:
-  // 1. <html data-theme="light"> on the panel SPA
-  // 2. .devframes-color-root.light on the hub page
-  // 3. color-scheme: light on the hub's <html> style
-  type ThemeTarget = { element: HTMLElement; attr: string };
-  const findThemeTarget = (doc: Document): ThemeTarget | null => {
-    if (doc.documentElement.dataset['theme']) {
-      return { element: doc.documentElement, attr: 'data-theme' };
-    }
-    const colorRoot = doc.querySelector('.devframes-color-root') as HTMLElement | null;
-    if (colorRoot) {
-      return { element: colorRoot, attr: 'class' };
-    }
-    if (doc.documentElement.style.colorScheme) {
-      return { element: doc.documentElement, attr: 'style' };
-    }
-    for (const f of doc.querySelectorAll('iframe')) {
-      try {
-        if (f.contentDocument) {
-          const found = findThemeTarget(f.contentDocument);
-          if (found) return found;
-        }
-      } catch {
-        /* cross-origin frame, skip */
-      }
-    }
-    return null;
-  };
-  const readTheme = (target: ThemeTarget): 'light' | 'dark' => {
-    if (target.attr === 'data-theme')
-      return target.element.dataset['theme'] === 'light' ? 'light' : 'dark';
-    if (target.attr === 'class')
-      return target.element.classList.contains('light') ? 'light' : 'dark';
-    if (target.attr === 'style')
-      return (target.element as HTMLElement).style.colorScheme === 'light' ? 'light' : 'dark';
-    return 'dark';
-  };
-  let themeObserver: MutationObserver | undefined;
-  const checkNestedTheme = () => {
-    if (themeObserver) return;
-    try {
-      const doc = iframe.contentDocument;
-      if (!doc) return;
-      const target = findThemeTarget(doc);
-      if (target) {
-        applyPopupTheme(readTheme(target));
-        themeObserver = new MutationObserver(() => applyPopupTheme(readTheme(target)));
-        themeObserver.observe(target.element, {
-          attributes: true,
-          attributeFilter:
-            target.attr === 'style'
-              ? ['style']
-              : target.attr === 'class'
-                ? ['class']
-                : ['data-theme'],
-        });
-      }
-    } catch {
-      /* cross-origin or detached, skip */
-    }
-  };
-  const themePoller = setInterval(checkNestedTheme, 400);
-  iframe.addEventListener('load', () => setTimeout(checkNestedTheme, 50));
-
-  // BroadcastChannel and postMessage as additional paths (for when the panel
-  // has the sender code or for cross-origin extension setups).
-  let themeChannel: BroadcastChannel | undefined;
-  try {
-    themeChannel = new BroadcastChannel('ng-devtools:theme');
-    themeChannel.onmessage = (e) => applyPopupTheme(e.data);
-  } catch {}
+  if (state.theme) popupRoot.dataset['theme'] = state.theme;
   const onThemeMessage = (e: MessageEvent) => {
     if (e.source === window) return;
     const msg = e.data as { type?: unknown; theme?: unknown } | null;
@@ -920,9 +841,6 @@ export function createDevtoolsPopup(options: { src?: string } = {}) {
   handle = {
     toggle: togglePanel,
     destroy: () => {
-      clearInterval(themePoller);
-      themeObserver?.disconnect();
-      themeChannel?.close();
       window.removeEventListener('message', onThemeMessage);
       window.removeEventListener('resize', applyLauncher);
       window.removeEventListener('resize', applyDock);

@@ -132,7 +132,7 @@ const KIND_COLORS: Record<string, string> = {
   'contentChild.required (signal)': '#fda4af',
   'contentChildren (signal)': '#fda4af',
   resource: '#06b6d4',
-  unknown: 'var(--text-2)',
+  unknown: '#a1a1aa',
 };
 
 @Component({
@@ -1170,18 +1170,10 @@ const KIND_COLORS: Record<string, string> = {
       color: #93c5fd;
       background: color-mix(in srgb, #60a5fa 12%, transparent);
       border-color: color-mix(in srgb, #60a5fa 30%, transparent);
-    }
-    @media (prefers-color-scheme: light) {
-      :root:not([data-theme='dark']) :host .source-write {
-        color: #1d4ed8;
-        background: color-mix(in srgb, #1d4ed8 12%, transparent);
-        border-color: color-mix(in srgb, #1d4ed8 30%, transparent);
+
+      @include m.light {
+        @include m.soft(#1d4ed8);
       }
-    }
-    :root[data-theme='light'] :host .source-write {
-      color: #1d4ed8;
-      background: color-mix(in srgb, #1d4ed8 12%, transparent);
-      border-color: color-mix(in srgb, #1d4ed8 30%, transparent);
     }
     .missed {
       color: var(--warn);

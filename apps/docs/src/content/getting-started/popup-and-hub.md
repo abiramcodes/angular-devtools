@@ -102,19 +102,24 @@ In a search box that has text, <kbd>Escape</kbd> clears the box and leaves the p
 
 The panel saves its position, size and dock mode in `localStorage` under `ng-devtools-popup`, so it keeps its layout across reloads. Clear that key to reset it.
 
+### Theme
+
+The panel follows the color scheme of the hub, which follows your system unless you pick light or dark in the hub. Without the hub, the panel follows your system. The popup frame around the panel switches with it and saves the last theme with the layout.
+
 ## The hub
 
 ### Docks in the side rail
 
 When the page's server mounts the hub (`/__devframes/`), the button opens the whole hub. A side rail shows one dock per tool:
 
-| Dock         | Shows                                                                           |
-| ------------ | ------------------------------------------------------------------------------- |
-| Angular      | Dashboard, Components, Routes, Signals, Injectors, Forms, Pipes, and SSR & HTTP |
-| NgRx         | The Store tab                                                                   |
-| Analog       | The Analog tab, or a notice in apps that do not use Analog                      |
-| NativeScript | A **Coming Soon** placeholder                                                   |
-| Capacitor    | A **Coming Soon** placeholder                                                   |
+| Dock           | Shows                                                                                                                                        |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| Angular        | Dashboard, Components, Routes, Signals, Injectors, Forms, Pipes, and SSR & HTTP                                                              |
+| NgRx           | The Store tab                                                                                                                                |
+| Analog         | The Analog tab, or a notice in apps that do not use Analog                                                                                   |
+| Angular Native | Components, Signals, Injectors and Store for a connected [Angular Native](./angular-native.md) app, or a setup notice when none is connected |
+| NativeScript   | Setup steps for [NativeScript apps](../guides/nativescript.md)                                                                               |
+| Capacitor      | A **Coming Soon** placeholder                                                                                                                |
 
 ### Full-page viewer
 

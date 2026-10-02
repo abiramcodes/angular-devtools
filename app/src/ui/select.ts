@@ -91,6 +91,8 @@ let nextId = 0;
     }
   `,
   styles: `
+    @use 'mixins' as m;
+
     :host {
       position: relative;
       display: inline-flex;
@@ -185,6 +187,10 @@ let nextId = 0;
         0 16px 40px -12px rgb(0 0 0 / 0.7),
         0 0 0 1px rgb(0 0 0 / 0.2);
       overscroll-behavior: contain;
+
+      @include m.light {
+        box-shadow: 0 12px 32px -12px rgb(0 0 0 / 0.25);
+      }
     }
     .list.up {
       top: auto;

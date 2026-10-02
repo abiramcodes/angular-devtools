@@ -29,6 +29,7 @@ The overlay runs inside the user's app, so it must be correct, cheap and invisib
 
 - **Use Angular's debug APIs**, not guesses: `ng.getComponent`, `ng.getDirectives`, `ng.getDirectiveMetadata`, `ng.getListeners`, `ng.getInjector`, `ng.ɵgetInjectorProviders`, `ng.ɵgetInjectorResolutionPath`, `ng.ɵgetDependenciesFromInjectable`, `ng.ɵgetSignalGraph`. Check the shapes in `node_modules/@angular/core/fesm2022` before relying on a field.
 - **Never write to the app's DOM.** Give elements and objects ids through a `WeakMap` (`element-id.ts`, `idFor` in `injector-tree.ts`), so ids stay stable between pushes and selection survives a refresh.
+- **Walk the host tree, not the DOM**, in the component, injector, signal graph and NgRx collectors. Take a `HostTree` (`host-tree.ts`) that defaults to `domTree()`, so the same collector runs on a platform without a DOM.
 - **Strip bundler prefixes** from class names (`className()` in `injector-tree.ts`), so `_App` shows as `App`.
 - **Don't match `_nghost-*` or `_ngcontent-*` attributes** with exact selectors; their names carry a suffix. Start from `[ng-version]` roots and the debug APIs.
 - **Keep pushes cheap.** Skip unchanged reports (compare with the last JSON sent), re-send now and then so the server doesn't expire the page, and avoid `querySelectorAll('*')` on a timer; cache and rescan on a `MutationObserver` signal.

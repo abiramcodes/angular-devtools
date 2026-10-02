@@ -1,7 +1,6 @@
 import { Component, DestroyRef, computed, effect, inject, input, signal } from '@angular/core';
 import type { DevframeRpcClient } from 'devframe/client';
 import { hostPageId } from '../page-id';
-import { ThemeService } from '../theme.service';
 
 interface ProviderInfo {
   token: string;
@@ -56,13 +55,9 @@ const NULL_ID = 'inj-null';
 
 const KIND_TONE: Record<string, string> = {
   component: 'var(--accent)',
-  directive: '#7cb4ff',
+  directive: 'var(--directive)',
   environment: 'var(--ok)',
   null: 'var(--text-3)',
-};
-
-const KIND_TONE_LIGHT: Record<string, string> = {
-  directive: '#1d4ed8', // blue-700 passes WCAG AA on light surfaces
 };
 
 function kindOf(node: InjectorNode): 'component' | 'directive' | 'environment' {
@@ -499,9 +494,14 @@ function isTree(value: unknown): value is InjectorNode[] {
     @use 'mixins' as m;
 
     :host {
+      --directive: #7cb4ff;
       display: block;
       color: var(--text);
       font-size: 13px;
+
+      @include m.light {
+        --directive: #1d4ed8;
+      }
     }
     .mono {
       font-family: var(--font-mono);
@@ -1040,7 +1040,7 @@ function isTree(value: unknown): value is InjectorNode[] {
       line-height: 16px;
     }
     .kind-flag {
-      @include m.soft(var(--accent-text));
+      @include m.soft(var(--accent));
     }
     .dep-meta {
       display: flex;
@@ -1242,7 +1242,6 @@ function isTree(value: unknown): value is InjectorNode[] {
 export class DiInspector {
   rpc = input<DevframeRpcClient | null>(null);
 
-  readonly #theme = inject(ThemeService);
   readonly nullId = NULL_ID;
   readonly roots = signal<InjectorNode[]>([]);
   readonly environment = signal<InjectorNode[]>([]);
@@ -1404,9 +1403,6 @@ export class DiInspector {
   }
 
   tone(kind: string) {
-    if (this.#theme.current() === 'light') {
-      return KIND_TONE_LIGHT[kind] ?? KIND_TONE[kind] ?? KIND_TONE['null'];
-    }
     return KIND_TONE[kind] ?? KIND_TONE['null'];
   }
 

@@ -159,6 +159,8 @@ export function plain(text: string | null): string {
 }
 
 export const FORMS_STYLES = `
+  @use 'mixins' as m;
+
   .muted {
     color: var(--text-2);
   }
@@ -231,6 +233,10 @@ export const FORMS_STYLES = `
     color: #1f0707;
     font-weight: 600;
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--danger) 18%, transparent);
+
+    @include m.light {
+      color: #fff;
+    }
   }
   .field-input {
     min-width: 0;
@@ -300,17 +306,17 @@ export const FORMS_STYLES = `
   }
   .tag[data-tone='ok'] {
     border-color: color-mix(in srgb, var(--ok) 30%, transparent);
-    background: color-mix(in srgb, var(--ok) 12%, transparent);
+    background: color-mix(in srgb, var(--ok) 12%, var(--surface));
     color: var(--ok);
   }
   .tag[data-tone='warn'] {
     border-color: color-mix(in srgb, var(--warn) 30%, transparent);
-    background: color-mix(in srgb, var(--warn) 12%, transparent);
+    background: color-mix(in srgb, var(--warn) 12%, var(--surface));
     color: var(--warn);
   }
   .tag[data-tone='bad'] {
     border-color: color-mix(in srgb, var(--danger) 30%, transparent);
-    background: color-mix(in srgb, var(--danger) 12%, transparent);
+    background: color-mix(in srgb, var(--danger) 12%, var(--surface));
     color: var(--danger);
   }
   .status {

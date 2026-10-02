@@ -262,6 +262,9 @@ const ORIGINS = ['all', 'user', 'code', 'devtools'] as const;
       box-shadow: inset 2px 0 0 var(--accent);
       color: var(--text-strong);
     }
+    .events li[data-type='submit'] time {
+      color: var(--text-2);
+    }
     time {
       color: var(--text-3);
       font-family: var(--font-mono);
@@ -284,14 +287,10 @@ const ORIGINS = ['all', 'user', 'code', 'devtools'] as const;
     .path {
       color: #fde68a;
       overflow-wrap: anywhere;
-    }
-    @media (prefers-color-scheme: light) {
-      :root:not([data-theme='dark']) :host .path {
+
+      @include m.light {
         color: var(--accent);
       }
-    }
-    :root[data-theme='light'] :host .path {
-      color: var(--accent);
     }
     .event-type {
       color: var(--text-strong);

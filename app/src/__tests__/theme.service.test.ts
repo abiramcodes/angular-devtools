@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { TestBed } from '@angular/core/testing';
 import { BrowserTestingModule, platformBrowserTesting } from '@angular/platform-browser/testing';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ThemeService } from '../theme.service';
 
 try {
@@ -13,7 +13,19 @@ try {
 afterEach(() => {
   delete document.documentElement.dataset['theme'];
   TestBed.resetTestingModule();
+  vi.unstubAllGlobals();
 });
+
+function stubColorScheme(light: boolean) {
+  let listener: ((e: { matches: boolean }) => void) | undefined;
+  const query = {
+    matches: light,
+    addEventListener: (_: string, fn: typeof listener) => (listener = fn),
+    removeEventListener: () => (listener = undefined),
+  };
+  vi.stubGlobal('matchMedia', () => query);
+  return (next: boolean) => listener?.({ matches: next });
+}
 
 describe('ThemeService', () => {
   it('defaults to dark when no data-theme attribute is present', () => {
@@ -87,6 +99,39 @@ describe('ThemeService', () => {
       }),
     );
 
+    expect(svc.current()).toBe('dark');
+  });
+
+  it('follows the system color scheme when nothing pins a theme', () => {
+    const flip = stubColorScheme(true);
+    const svc = TestBed.inject(ThemeService);
+    expect(svc.current()).toBe('light');
+
+    flip(false);
+    expect(svc.current()).toBe('dark');
+  });
+
+  it('stops following the system once DevTools sends a theme', () => {
+    const flip = stubColorScheme(false);
+    const svc = TestBed.inject(ThemeService);
+
+    window.dispatchEvent(
+      new MessageEvent('message', {
+        data: { type: 'ng-devtools:theme-change', theme: 'dark' },
+        source: window.parent,
+      }),
+    );
+    flip(true);
+
+    expect(svc.current()).toBe('dark');
+  });
+
+  it('ignores the system color scheme when the URL pinned a theme', () => {
+    document.documentElement.dataset['theme'] = 'dark';
+    const flip = stubColorScheme(true);
+    const svc = TestBed.inject(ThemeService);
+
+    flip(true);
     expect(svc.current()).toBe('dark');
   });
 });
