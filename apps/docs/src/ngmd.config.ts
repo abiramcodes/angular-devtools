@@ -213,6 +213,7 @@ const config: NgmdConfig = {
         {label: 'Restore NgRx signal state', href: '/guides/ngrx-signals-restore'},
         {label: 'Set up SSR & HTTP', href: '/guides/ssr-http'},
         {label: 'Set up Analog', href: '/guides/analog'},
+        {label: 'Set up NativeScript', href: '/guides/nativescript'},
       ],
     },
     {

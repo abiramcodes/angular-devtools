@@ -40,7 +40,7 @@ const DOCKS: {
     icon: ANGULAR_NATIVE_ICON,
     inspector: 'components',
   },
-  { view: 'nativescript', title: 'NativeScript', icon: 'logos:nativescript', soon: true },
+  { view: 'nativescript', title: 'NativeScript', icon: 'logos:nativescript' },
   { view: 'capacitor', title: 'Capacitor', icon: 'logos:capacitorjs-icon', soon: true },
 ];
 

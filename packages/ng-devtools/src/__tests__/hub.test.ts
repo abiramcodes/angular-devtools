@@ -63,7 +63,6 @@ describe('ng-devtools hub', () => {
       ['ng-devtools:capacitor', '/__devframes/ng-devtools/?view=capacitor'],
     ]);
     expect(ours.filter((d) => d.title.endsWith('Coming Soon')).map((d) => d.id)).toEqual([
-      'ng-devtools:nativescript',
       'ng-devtools:capacitor',
     ]);
     expect(ours.find((d) => d.id === 'ng-devtools:angular-native')?.title).toBe('Angular Native');

@@ -71,22 +71,6 @@ const VIEW_TABS: Partial<Record<View, Tab[]>> = {
 };
 
 const COMING_SOON: Partial<Record<View, ComingSoonInfo>> = {
-  nativescript: {
-    id: 'nativescript',
-    name: 'NativeScript',
-    badge: 'Coming Soon',
-    heading: 'NativeScript Support',
-    summary:
-      'Inspect NativeScript Angular apps running natively on iOS and Android, with the same tools.',
-    color: '#3c5afd',
-    plans: [
-      'Native overlay that reports the component tree from the device',
-      'Standalone devtools server your phone or simulator connects to',
-      'Example NativeScript app to try it end to end',
-    ],
-    pr: 16,
-    author: { name: 'Nathan Walker', login: 'NathanWalker' },
-  },
   capacitor: {
     id: 'capacitor',
     name: 'Capacitor',
@@ -101,6 +85,26 @@ const COMING_SOON: Partial<Record<View, ComingSoonInfo>> = {
     ],
     pr: 21,
     author: { name: 'Erkam Yaman', login: 'erkamyaman' },
+  },
+};
+
+const NATIVESCRIPT_SETUP: ComingSoonInfo = {
+  id: 'nativescript',
+  name: 'NativeScript',
+  badge: 'Available',
+  heading: 'Inspect NativeScript apps',
+  summary:
+    'A NativeScript Angular app reports from the simulator or device to this server, and its components, signals, injectors and NgRx stores show up in the Angular dock.',
+  color: '#3c5afd',
+  plansTitle: 'Set up an app',
+  plans: [
+    'Install @santoshyadavdev/ng-devtools and @valor/nativescript-websockets',
+    'Call initNativeScriptOverlay() in main.ts, before the app bootstraps',
+    'Run ng-devtools dev --no-auth in the app, then open the Angular dock',
+  ],
+  link: {
+    label: 'NativeScript setup guide',
+    href: 'https://santoshyadavdev.github.io/angular-devtools/guides/nativescript',
   },
 };
 
@@ -711,6 +715,7 @@ export class App implements OnInit, OnDestroy {
   readonly comingSoon = computed(() => {
     const view = this.view();
     if (view === 'analog') return this.analogKnown() && !this.analog() ? NOT_ANALOG : undefined;
+    if (view === 'nativescript') return NATIVESCRIPT_SETUP;
     if (view === 'angular-native') {
       return this.nativeKnown() && !this.nativePageId() ? NO_ANGULAR_NATIVE : undefined;
     }

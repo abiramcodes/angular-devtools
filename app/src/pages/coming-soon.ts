@@ -1,4 +1,4 @@
-import { Component, input } from '@angular/core';
+import { Component, computed, input } from '@angular/core';
 
 export interface ComingSoonInfo {
   id: 'nativescript' | 'capacitor' | 'analog' | 'angular-native';
@@ -8,6 +8,7 @@ export interface ComingSoonInfo {
   summary: string;
   color: string;
   plans: string[];
+  plansTitle?: string;
   pr?: number;
   author?: { name: string; login: string };
   link?: { label: string; href: string };
@@ -127,7 +128,7 @@ export interface ComingSoonInfo {
       }
 
       <h3 class="plans-title">
-        {{ info().link ? 'In an ' + info().name + ' app' : 'On the roadmap' }}
+        {{ plansTitle() }}
       </h3>
       <ul class="plans">
         @for (plan of info().plans; track plan; let i = $index) {
@@ -486,4 +487,8 @@ export interface ComingSoonInfo {
 })
 export class ComingSoon {
   readonly info = input.required<ComingSoonInfo>();
+  readonly plansTitle = computed(() => {
+    const info = this.info();
+    return info.plansTitle ?? (info.link ? `In an ${info.name} app` : 'On the roadmap');
+  });
 }

@@ -3,6 +3,8 @@ packages:
   - examples/*
   - '!examples/angular-native'
   - apps/*
+  # Installs with npm from its own lockfile, outside the root install.
+  - '!examples/nativescript'
 
 packageExtensions:
   '@analogjs/vite-plugin-nitro':
